@@ -2,107 +2,63 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"log"
+	"os"
+	"syscall"
 
-	"github.com/gen2brain/malgo"
+	"github.com/richiejp/VoxInput/internal/pid"
 )
 
 func main() {
-	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
-		log.Println(message)
-	})
-	if err != nil {
-		log.Println(err)
-		os.Exit(1)
-	}
-	defer func() {
-		_ = ctx.Uninit()
-		ctx.Free()
-	}()
 
-	deviceConfig := malgo.DefaultDeviceConfig(malgo.Duplex)
-	deviceConfig.Capture.Format = malgo.FormatS16
-	deviceConfig.Capture.Channels = 1
-	deviceConfig.Playback.Format = malgo.FormatS16
-	deviceConfig.Playback.Channels = 1
-	deviceConfig.SampleRate = 44100
-	deviceConfig.Alsa.NoMMap = 1
-
-	var playbackSampleCount uint32
-	var capturedSampleCount uint32
-	pCapturedSamples := make([]byte, 0)
-
-	sizeInBytes := uint32(malgo.SampleSizeInBytes(deviceConfig.Capture.Format))
-	onRecvFrames := func(pSample2, pSample []byte, framecount uint32) {
-
-		sampleCount := framecount * deviceConfig.Capture.Channels * sizeInBytes
-
-		newCapturedSampleCount := capturedSampleCount + sampleCount
-
-		pCapturedSamples = append(pCapturedSamples, pSample...)
-
-		capturedSampleCount = newCapturedSampleCount
-
-	}
-
-	log.Println("Recording...")
-	captureCallbacks := malgo.DeviceCallbacks{
-		Data: onRecvFrames,
-	}
-
-	log.Println("Context:", ctx.Context, "deviceConfig:", deviceConfig, "captureCallbacks:", captureCallbacks)
-	device, err := malgo.InitDevice(ctx.Context, deviceConfig, captureCallbacks)
-	if err != nil {
-		log.Println("Init", err)
+	if len(os.Args) < 2 {
+		fmt.Println("Expected 'listen', 'record', 'write', or 'help' subcommands")
 		os.Exit(1)
 	}
 
-	err = device.Start()
+	cmd := os.Args[1]
+
+	if cmd == "help" {
+		fmt.Println("Available commands:")
+		fmt.Println("  listen - Start speech to text daemon")
+		fmt.Println("  record - Tell existing listener to start recording audio")
+		fmt.Println("  write  - Tell existing listener to stop recording audio and transcribe it")
+		fmt.Println("  help   - Show this help message")
+		return
+	}
+
+	pidPath, err := pid.Path()
 	if err != nil {
-		log.Println("Start", err)
-		os.Exit(1)
+		log.Fatalln("main: failed to get PID file path: ", err)
 	}
 
-	log.Println("Press Enter to stop recording...")
-	fmt.Scanln()
-
-	device.Uninit()
-
-	onSendFrames := func(pSample, nil []byte, framecount uint32) {
-		samplesToRead := framecount * deviceConfig.Playback.Channels * sizeInBytes
-		if samplesToRead > capturedSampleCount-playbackSampleCount {
-			samplesToRead = capturedSampleCount - playbackSampleCount
-		}
-
-		copy(pSample, pCapturedSamples[playbackSampleCount:playbackSampleCount+samplesToRead])
-
-		playbackSampleCount += samplesToRead
-
-		if playbackSampleCount == uint32(len(pCapturedSamples)) {
-			playbackSampleCount = 0
-		}
+	if cmd == "listen" {
+		listen(pidPath)
+		return
 	}
 
-	log.Println("Playing...")
-	playbackCallbacks := malgo.DeviceCallbacks{
-		Data: onSendFrames,
-	}
-
-	device, err = malgo.InitDevice(ctx.Context, deviceConfig, playbackCallbacks)
+	id, err := pid.Read(pidPath)
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatalln("main: failed to read listener PID: ", err)
 	}
 
-	err = device.Start()
+	proc, err := os.FindProcess(id)
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		log.Fatalln("main: Failed to find listen process: ", err)
 	}
 
-	log.Println("Press Enter to quit...")
-	fmt.Scanln()
+	switch cmd {
+	case "record":
+		log.Println("main: Sending record signal")
+		err = proc.Signal(syscall.SIGUSR1)
+	case "write":
+		log.Println("main: Sending stop/write signal")
+		err = proc.Signal(syscall.SIGUSR2)
+	default:
+		log.Fatalln("main: Unknown command: ", os.Args[1])
+	}
 
-	device.Uninit()
+	if err != nil {
+		log.Fatalln("main: Error sending signal: ", err)
+	}
 }

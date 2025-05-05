@@ -1,5 +1,5 @@
 {
-  description = "UseDesk";
+  description = "VoxInput";
 
   inputs.nixpkgs.url = "nixpkgs/nixos-unstable";
 
@@ -22,7 +22,10 @@
               gotools
               go-tools
 
+              libpulseaudio
+              dotool
             ];
+            LD_LIBRARY_PATH = "${pkgs.libpulseaudio}/lib";
           };
         });
     };
