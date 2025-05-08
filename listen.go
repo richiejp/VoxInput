@@ -21,7 +21,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
-func listen(pidPath string) {
+func listen(pidPath string, replay bool) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -120,14 +120,17 @@ Listen:
 			log.Fatalln("main: ", err)
 		}
 
-		log.Println("main: Playing...")
-
 		reader := bytes.NewReader(buf.Bytes())
-		if err := audio.Playback(context.Background(), reader, streamConfig); err != nil && !errors.Is(err, io.EOF) {
-			log.Fatalln("main: ", fmt.Errorf("audio playback: %w", err))
-		}
 
-		log.Println("main: Playback Done")
+		if replay {
+			log.Println("main: Playing...")
+
+			if err := audio.Playback(context.Background(), reader, streamConfig); err != nil && !errors.Is(err, io.EOF) {
+				log.Fatalln("main: ", fmt.Errorf("audio playback: %w", err))
+			}
+
+			log.Println("main: Playback Done")
+		}
 
 		wavHeader := audio.NewWAVHeader(buf.Bytes())
 		var headerBuf bytes.Buffer

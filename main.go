@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"slices"
 	"syscall"
 
 	"github.com/richiejp/VoxInput/internal/pid"
@@ -20,7 +21,7 @@ func main() {
 
 	if cmd == "help" {
 		fmt.Println("Available commands:")
-		fmt.Println("  listen - Start speech to text daemon")
+		fmt.Println("  listen - Start speech to text daemon (use --replay to play the audio just recorded for transcription)")
 		fmt.Println("  record - Tell existing listener to start recording audio")
 		fmt.Println("  write  - Tell existing listener to stop recording audio and transcribe it")
 		fmt.Println("  help   - Show this help message")
@@ -33,7 +34,8 @@ func main() {
 	}
 
 	if cmd == "listen" {
-		listen(pidPath)
+		replay := slices.Contains(os.Args[2:], "--replay")
+		listen(pidPath, replay)
 		return
 	}
 
