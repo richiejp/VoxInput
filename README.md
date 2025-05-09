@@ -2,7 +2,9 @@
 
 Transcribe input from your microphone and turn it into key presses on a virtual keyboard. This allows you to use speech-to-text on any application or window system in Linux. In fact you can use it on the system console.
 
-<img src="https://github.com/user-attachments/assets/adb1e2ca-7640-42aa-8f85-3fa2ed4453be" alt="Description of Image" width="600">
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/bc1de2af-e07b-4460-a522-b140a041a3db" alt="VoxInput Robot Mascot" width="400">
+</p>
 
 VoxInput is meant to be used with [LocalAI](https://localai.io), but it will function with any OpenAI compatible API that provides the transcription endpoint.
 
