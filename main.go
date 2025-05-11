@@ -10,6 +10,9 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
+// Sync with flake
+const version = "0.1.0"
+
 func main() {
 
 	if len(os.Args) < 2 {
@@ -19,13 +22,19 @@ func main() {
 
 	cmd := os.Args[1]
 
-	if cmd == "help" {
+	switch cmd {
+	case "help":
 		fmt.Println("Available commands:")
 		fmt.Println("  listen - Start speech to text daemon (use --replay to play the audio just recorded for transcription)")
 		fmt.Println("  record - Tell existing listener to start recording audio")
 		fmt.Println("  write  - Tell existing listener to stop recording audio and transcribe it")
 		fmt.Println("  help   - Show this help message")
+		fmt.Println("  ver    - Print version")
 		return
+	case "ver":
+		fmt.Printf("v%s\n", version)
+		return
+	default:
 	}
 
 	pidPath, err := pid.Path()

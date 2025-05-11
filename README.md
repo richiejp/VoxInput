@@ -62,9 +62,11 @@ KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
 5. It makes sense to bind the `record` and `write` commands to keys using your window manager. For instance in my Sway config I have the following
 
 ```
-bindsym $mod+Shift+t exec VoxInput record
-bindsym $mod+t exec VoxInput write
+bindsym $mod+Shift+t exec voxinput record
+bindsym $mod+t exec voxinput write
 ```
+
+Alternatively you can use the Nix flake.
 
 ## Usage
 
@@ -111,7 +113,7 @@ bindsym $mod+t exec VoxInput write
 
 ## TODO
 
-- [ ] Put playback behind a debug switch
+- [x] Put playback behind a debug switch
 - [ ] Create a release
 - [ ] Realtime Transcription
 - [ ] GUI and system tray
