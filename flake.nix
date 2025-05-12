@@ -32,6 +32,7 @@
       packages = forAllSystems (system:
         let
           pkgs = nixpkgsFor.${system};
+          lib = pkgs.lib;
         in
         {
           default = pkgs.buildGoModule {
@@ -43,18 +44,21 @@
 
             vendorHash = "sha256-OserWlRhKyTvLrYSikNCjdDdTATIcWTfqJi9n4mHVLE="; #nixpkgs.lib.fakeHash;
 
+            nativeBuildInputs = with pkgs; [
+              makeWrapper
+            ];
+
             # Include runtime dependencies
             buildInputs = with pkgs; [
               libpulseaudio
               dotool
             ];
 
-            # Ensure libpulseaudio is available at runtime
-            LD_LIBRARY_PATH = "${pkgs.libpulseaudio}/lib";
-
-            # To take advantage of this something like services.udev.packages = [ nixpkgs.voxinput ] is required
-            postInstall = ''
+            postInstall = with pkgs; ''
               mv $out/bin/VoxInput $out/bin/voxinput
+              wrapProgram $out/bin/voxinput \
+                --prefix PATH : ${lib.makeBinPath [ dotool ]} \
+                --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ libpulseaudio ]}"
               mkdir -p $out/lib/udev/rules.d
               echo 'KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"' > $out/lib/udev/rules.d/99-voxinput.rules
             '';

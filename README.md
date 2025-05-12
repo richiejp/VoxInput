@@ -114,7 +114,7 @@ Alternatively you can use the Nix flake.
 ## TODO
 
 - [x] Put playback behind a debug switch
-- [ ] Create a release
+- [x] Create a release
 - [ ] Realtime Transcription
 - [ ] GUI and system tray
 - [ ] Voice detection and activation
