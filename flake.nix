@@ -36,7 +36,7 @@
         {
           default = pkgs.buildGoModule {
             pname = "voxinput";
-            version = "0.1.0";
+            version = "0.3.0";
 
             # Path to the source code
             src = ./.;
