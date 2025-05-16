@@ -1,0 +1,19 @@
+# github.com/WqyJh/go-openai-realtime v0.5.0 => ../go-openai-realtime
+## explicit; go 1.19
+github.com/WqyJh/go-openai-realtime
+# github.com/coder/websocket v1.8.12
+## explicit; go 1.19
+github.com/coder/websocket
+github.com/coder/websocket/internal/bpool
+github.com/coder/websocket/internal/errd
+github.com/coder/websocket/internal/util
+github.com/coder/websocket/internal/wsjs
+github.com/coder/websocket/internal/xsync
+# github.com/gen2brain/malgo v0.11.23
+## explicit; go 1.17
+github.com/gen2brain/malgo
+# github.com/sashabaranov/go-openai v1.32.0
+## explicit; go 1.18
+github.com/sashabaranov/go-openai
+github.com/sashabaranov/go-openai/internal
+# github.com/WqyJh/go-openai-realtime => ../go-openai-realtime

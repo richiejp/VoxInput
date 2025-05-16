@@ -6,7 +6,7 @@ Transcribe input from your microphone and turn it into key presses on a virtual 
   <img src="https://github.com/user-attachments/assets/bc1de2af-e07b-4460-a522-b140a041a3db" alt="VoxInput Robot Mascot" width="400">
 </p>
 
-VoxInput is meant to be used with [LocalAI](https://localai.io), but it will function with any OpenAI compatible API that provides the transcription endpoint.
+VoxInput is meant to be used with [LocalAI](https://localai.io), but it will function with any OpenAI compatible API that provides the transcription endpoint or realtime API.
 
 ## Features
 
@@ -14,12 +14,15 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Audio Capture and Playback**: Records audio from the microphone and plays it back for verification.
 - **Transcription**: Converts recorded audio into text using a local or remote transcription service.
 - **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool).
+- **Voice Activity Detection**: In realtime mode VoxInput uses VAD to detect speech segments and automatically transcribe them.
 
 ## Requirements
 
 - `dotool` (for simulating keyboard input)
 - `OPENAI_API_KEY` or `VOXINPUT_API_KEY`: Your OpenAI API key for Whisper transcription. If you have a local instance with no key, then just leave it unset.
-- `OPENAPI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI Whisper API server: defaults to `http://localhost:8080/v1`
+- `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
+- `OPENAI_WS_BASE_URL` or `VOXINPUT_WS_BASE_URL`: The base URL of the realtime websocket API: defaults to `ws://localhost:8080/v1/realtime`
+- OpenAI Realtime API support - VoxInput's realtime mode with VAD requires a [websocket endpoint that support's OpenAI's realtime API in transcription only mode](https://github.com/mudler/LocalAI/pull/5392). You can disable realtime mode with `--no-realtime`.
 
 Note that the VoxInput env vars take precedence over the OpenAI ones.
 
@@ -47,19 +50,14 @@ KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
    cd VoxInput
    ```
 
-2. Install dependencies:
+2. Build the project:
    ```bash
-   go mod tidy
+   go build -mod=vendor -o voxinput
    ```
 
-3. Build the project:
-   ```bash
-   go build -o voxinput
-   ```
+3. Ensure `dotool` is installed on your system and it can make key presses.
 
-4. Ensure `dotool` is installed on your system and it can make key presses.
-
-5. It makes sense to bind the `record` and `write` commands to keys using your window manager. For instance in my Sway config I have the following
+4. It makes sense to bind the `record` and `write` commands to keys using your window manager. For instance in my Sway config I have the following
 
 ```
 bindsym $mod+Shift+t exec voxinput record
@@ -70,6 +68,9 @@ Alternatively you can use the Nix flake.
 
 ## Usage
 
+The `LANG` and `VOXINPUT_LANG` environment variables are used to tell the transcription service which language to use.
+For multi-lingual use set `VOXINPUT_LANG` to an empty string.
+
 ### Commands
 
 - **`listen`**: Starts the speech-to-text daemon.
@@ -77,12 +78,12 @@ Alternatively you can use the Nix flake.
   ./voxinput listen
   ```
 
-- **`record`**: Sends a signal to the daemon to start recording audio then exits.
+- **`record`**: Sends a signal to the daemon to start recording audio then exits. In realtime mode this will start transcription.
   ```bash
   ./voxinput record
   ```
 
-- **`write`**: Sends a signal to the daemon to stop recording, transcribe the audio, and simulate typing the text.
+- **`write`** or **`stop`**: Sends a signal to the daemon to stop recording. When not in realtime mode this triggers transcription.
   ```bash
   ./voxinput write
   ```
@@ -92,11 +93,30 @@ Alternatively you can use the Nix flake.
   ./voxinput help
   ```
 
+### Example Realtime Workflow
+
+1. Start the daemon in a terminal window:
+   ```bash
+   OPENAI_BASE_URL=http://ai.local:8081/v1 OPENAI_WS_BASE_URL=ws://ai.local:8081/v1/realtime ./voxinput listen
+   ```
+
+2. Select a text box you want to speak into and use a global shortcut to run the following
+   ```bash
+   ./voxinput record
+   ```
+
+3. Begin speaking, when you pause for a second or two your speach will be transcribed and typed into the active application.
+
+4. Send a signal to stop recording
+   ```bash
+   ./voxinput stop
+   ```
+
 ### Example Workflow
 
 1. Start the daemon in a terminal window:
    ```bash
-   ./voxinput listen
+   OPENAI_BASE_URL=http://ai.local:8081/v1 ./voxinput listen --no-realtime
    ```
 
 2. Select a text box you want to speak into and use a global shortcut to run the following
@@ -115,9 +135,10 @@ Alternatively you can use the Nix flake.
 
 - [x] Put playback behind a debug switch
 - [x] Create a release
-- [ ] Realtime Transcription
+- [x] Realtime Transcription
 - [ ] GUI and system tray
-- [ ] Voice detection and activation
+- [x] Voice detection and activation (partial, see below)
+- [ ] Code words to start and stop transcription
 - [ ] Allow user to describe a button they want to press (requires submitting screen shot and transcription to LocalAGI)
 
 ## Signals
