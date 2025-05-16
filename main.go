@@ -11,7 +11,7 @@ import (
 )
 
 // Sync with flake
-const version = "0.3.0"
+const version = "0.4.0"
 
 func main() {
 
@@ -25,9 +25,12 @@ func main() {
 	switch cmd {
 	case "help":
 		fmt.Println("Available commands:")
-		fmt.Println("  listen - Start speech to text daemon (use --replay to play the audio just recorded for transcription)")
-		fmt.Println("  record - Tell existing listener to start recording audio")
-		fmt.Println("  write  - Tell existing listener to stop recording audio and transcribe it")
+		fmt.Println("  listen - Start speech to text daemon")
+		fmt.Println("           --replay play the audio just recorded for transcription")
+		fmt.Println("           --no-realtime use the HTTP API instead of the realtime API; disables VAD")
+		fmt.Println("  record - Tell existing listener to start recording audio. In realtime mode it also begins transcription")
+		fmt.Println("  write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode")
+		fmt.Println("  stop   - Alias for write; makes more sense in realtime mode")
 		fmt.Println("  help   - Show this help message")
 		fmt.Println("  ver    - Print version")
 		return
@@ -43,8 +46,28 @@ func main() {
 	}
 
 	if cmd == "listen" {
+		apiKey := getOpenaiEnv("API_KEY", "sk-xxx")
+		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
+		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
+		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
+
+		if len(lang) > 2 {
+			lang = lang[:2]
+		}
+
+		if lang != "" {
+			log.Println("main: language is set to ", lang)
+		}
+
 		replay := slices.Contains(os.Args[2:], "--replay")
-		listen(pidPath, replay)
+		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
+
+		if realtime {
+			listen(pidPath, apiKey, httpApiBase, wsApiBase, lang)
+		} else {
+			listenOld(pidPath, apiKey, httpApiBase, lang, replay)
+		}
+
 		return
 	}
 
@@ -62,6 +85,8 @@ func main() {
 	case "record":
 		log.Println("main: Sending record signal")
 		err = proc.Signal(syscall.SIGUSR1)
+	case "stop":
+		fallthrough
 	case "write":
 		log.Println("main: Sending stop/write signal")
 		err = proc.Signal(syscall.SIGUSR2)
