@@ -21,6 +21,38 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
+type chunkWriter struct {
+	ctx      context.Context
+	ready    chan<- (*bytes.Buffer)
+	current  *bytes.Buffer
+	lastSwap time.Time
+}
+
+func newChunkWriter(ctx context.Context, ready chan<- (*bytes.Buffer)) *chunkWriter {
+	return &chunkWriter{
+		ctx:      ctx,
+		ready:    ready,
+		current:  new(bytes.Buffer),
+		lastSwap: time.Now(),
+	}
+}
+
+func (rbw *chunkWriter) Write(p []byte) (n int, err error) {
+	now := time.Now()
+	if now.Sub(rbw.lastSwap) >= 1000*time.Millisecond {
+		select {
+		case rbw.ready <- rbw.current:
+			break
+		case <-rbw.ctx.Done():
+			return 0, rbw.ctx.Err()
+		}
+		rbw.current = new(bytes.Buffer)
+		rbw.lastSwap = now
+	}
+
+	return rbw.current.Write(p)
+}
+
 func listen(pidPath string, replay bool) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
@@ -61,6 +93,7 @@ func listen(pidPath string, replay bool) {
 	clientConfig.HTTPClient = &http.Client{
 		Timeout: time.Second * 30,
 	}
+	client := openai.NewClientWithConfig(clientConfig)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGUSR1)
@@ -89,15 +122,129 @@ Listen:
 			break
 		}
 
-		log.Println("main: Recording...")
+		log.Println("main: Record/Transcribe...")
 
-		var buf bytes.Buffer
 		ctx, cancel := context.WithCancel(context.Background())
+		audioChunks := make(chan (*bytes.Buffer), 10)
+		chunkWriter := newChunkWriter(ctx, audioChunks)
+		textChunks := make(chan (string), 10)
 		errCh := make(chan error, 1)
 
 		go func() {
-			if err := audio.Capture(ctx, &buf, streamConfig); err != nil {
+			if err := audio.Capture(ctx, chunkWriter, streamConfig); err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
 				errCh <- fmt.Errorf("audio capture: %w", err)
+				cancel()
+			}
+		}()
+
+		go func() {
+			var (
+				headerBuf bytes.Buffer
+				prompt    string
+			)
+			prev := new(bytes.Buffer)
+
+			for {
+				headerBuf.Reset()
+
+				var cur *bytes.Buffer
+				select {
+				case cur = <-audioChunks:
+					break
+				case <-ctx.Done():
+					return
+				}
+
+				log.Printf("main: transcribing, prev: %d, cur: %d\n", prev.Len(), cur.Len())
+
+				wavHeader := audio.NewWAVHeader(uint32(prev.Len() + cur.Len()))
+				if err := wavHeader.Write(&headerBuf); err != nil {
+					errCh <- fmt.Errorf("write wav header: %w", err)
+					cancel()
+					return
+				}
+
+				curReader := bytes.NewReader(cur.Bytes())
+				prevReader := bytes.NewReader(prev.Bytes())
+				wavReader := io.MultiReader(&headerBuf, prevReader, curReader)
+
+				req := openai.AudioRequest{
+					Model:    "whisper-1",
+					FilePath: "S16",
+					Reader:   wavReader,
+					Language: "en",
+					Prompt:   prompt,
+				}
+
+				log.Printf("main: prompt text: \n %s \n", prompt)
+
+				resp, err := client.CreateTranscription(ctx, req)
+				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					}
+					errCh <- fmt.Errorf("transcription: %w", err)
+					cancel()
+					return
+				}
+
+				log.Println("main: transcribed text: ", resp.Text)
+				prompt += resp.Text
+				textChunks <- resp.Text
+				prev = cur
+			}
+		}()
+
+		go func() {
+			var text string
+
+			for {
+				select {
+				case text = <-textChunks:
+					break
+				case <-ctx.Done():
+					return
+				}
+
+				dotool := exec.CommandContext(ctx, "dotool")
+				stdin, err := dotool.StdinPipe()
+				if err != nil {
+					errCh <- fmt.Errorf("dotool stdin pipe: %w", err)
+					cancel()
+					return
+				}
+				dotool.Stderr = os.Stderr
+
+				if err := dotool.Start(); err != nil {
+					errCh <- fmt.Errorf("dotool stderr pipe: %w", err)
+					cancel()
+					return
+				}
+
+				_, err = io.WriteString(stdin, fmt.Sprintf("type %s", text))
+				if err != nil {
+					errCh <- fmt.Errorf("dotool stdin WriteString: %w", err)
+					cancel()
+					return
+				}
+
+				if err := stdin.Close(); err != nil {
+					errCh <- fmt.Errorf("close dotool stdin: %w", err)
+					cancel()
+					return
+				}
+
+				if err := dotool.Wait(); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return
+					}
+					errCh <- fmt.Errorf("dotool wait: %w", err)
+					cancel()
+					return
+				}
 			}
 		}()
 
@@ -120,63 +267,62 @@ Listen:
 			log.Fatalln("main: ", err)
 		}
 
-		reader := bytes.NewReader(buf.Bytes())
+		// reader := bytes.NewReader(buf.Bytes())
 
-		if replay {
-			log.Println("main: Playing...")
+		// if replay {
+		// 	log.Println("main: Playing...")
 
-			if err := audio.Playback(context.Background(), reader, streamConfig); err != nil && !errors.Is(err, io.EOF) {
-				log.Fatalln("main: ", fmt.Errorf("audio playback: %w", err))
-			}
+		// 	if err := audio.Playback(context.Background(), reader, streamConfig); err != nil && !errors.Is(err, io.EOF) {
+		// 		log.Fatalln("main: ", fmt.Errorf("audio playback: %w", err))
+		// 	}
 
-			log.Println("main: Playback Done")
-		}
+		// 	log.Println("main: Playback Done")
+		// }
 
-		wavHeader := audio.NewWAVHeader(buf.Bytes())
-		var headerBuf bytes.Buffer
-		if err := wavHeader.Write(&headerBuf); err != nil {
-			log.Fatalln("main: ", fmt.Errorf("write wav header: %w", err))
-		}
+		// wavHeader := audio.NewWAVHeader(buf.Bytes())
+		// var headerBuf bytes.Buffer
+		// if err := wavHeader.Write(&headerBuf); err != nil {
+		// 	log.Fatalln("main: ", fmt.Errorf("write wav header: %w", err))
+		// }
 
-		reader.Seek(0, io.SeekStart)
-		wavReader := io.MultiReader(&headerBuf, reader)
+		// reader.Seek(0, io.SeekStart)
+		// wavReader := io.MultiReader(&headerBuf, reader)
 
-		client := openai.NewClientWithConfig(clientConfig)
-		req := openai.AudioRequest{
-			Model:    "whisper-1",
-			FilePath: "S16",
-			Reader:   wavReader,
-			Language: "en",
-		}
+		// req := openai.AudioRequest{
+		// 	Model:    "whisper-1",
+		// 	FilePath: "S16",
+		// 	Reader:   wavReader,
+		// 	Language: "en",
+		// }
 
-		resp, err := client.CreateTranscription(context.Background(), req)
-		if err != nil {
-			log.Fatalln("main: ", fmt.Errorf("CreateTranscription: %w", err))
-		}
+		// resp, err := client.CreateTranscription(context.Background(), req)
+		// if err != nil {
+		// 	log.Fatalln("main: ", fmt.Errorf("CreateTranscription: %w", err))
+		// }
 
-		log.Println("main: transcribed text: ", resp.Text)
+		// log.Println("main: transcribed text: ", resp.Text)
 
-		dotool := exec.Command("dotool")
-		stdin, err := dotool.StdinPipe()
-		if err != nil {
-			log.Fatalln("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
-		}
-		dotool.Stderr = os.Stderr
-		if err := dotool.Start(); err != nil {
-			log.Fatalln("main: ", fmt.Errorf("dotool stderr pipe: %w", err))
-		}
+		// dotool := exec.Command("dotool")
+		// stdin, err := dotool.StdinPipe()
+		// if err != nil {
+		// 	log.Fatalln("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
+		// }
+		// dotool.Stderr = os.Stderr
+		// if err := dotool.Start(); err != nil {
+		// 	log.Fatalln("main: ", fmt.Errorf("dotool stderr pipe: %w", err))
+		// }
 
-		_, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
-		if err != nil {
-			log.Fatalln("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
-		}
+		// _, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
+		// if err != nil {
+		// 	log.Fatalln("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
+		// }
 
-		if err := stdin.Close(); err != nil {
-			log.Fatalln("main: close dotool stdin: ", err)
-		}
+		// if err := stdin.Close(); err != nil {
+		// 	log.Fatalln("main: close dotool stdin: ", err)
+		// }
 
-		if err := dotool.Wait(); err != nil {
-			log.Fatalln("main: dotool wait: ", err)
-		}
+		// if err := dotool.Wait(); err != nil {
+		// 	log.Fatalln("main: dotool wait: ", err)
+		// }
 	}
 }
