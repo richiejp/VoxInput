@@ -237,16 +237,18 @@ Listen:
 
 				log.Println("main: receiving message: ", msg.ServerEventType())
 
+				var text string
 				switch msg.ServerEventType() {
+				case openairt.ServerEventTypeResponseAudioTranscriptDone:
+					text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
 				case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
+					text = msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
 				case openairt.ServerEventTypeError:
 					log.Println("main: server error: ", msg.(openairt.ErrorEvent).Error.Message)
 					continue
 				default:
 					continue
 				}
-
-				text := msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
 
 				log.Println("main: received transcribed text: ", text)
 
