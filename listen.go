@@ -147,6 +147,7 @@ Listen:
 					continue Listen
 				}
 				log.Println("main: error receiving message, retrying: ", err)
+				time.Sleep(250 * time.Millisecond)
 				continue
 			}
 
@@ -228,6 +229,7 @@ Listen:
 					if errors.As(err, &permanent) {
 						log.Println("main: Connection failed: ", err)
 						cancel()
+						break
 					}
 					log.Println("main: error receiving message, retrying: ", err)
 					continue
@@ -239,6 +241,7 @@ Listen:
 				case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
 				case openairt.ServerEventTypeError:
 					log.Println("main: server error: ", msg.(openairt.ErrorEvent).Error.Message)
+					continue
 				default:
 					continue
 				}
@@ -290,19 +293,28 @@ Listen:
 			}
 		}()
 
-		for sig := range sigChan {
-			switch sig {
-			case syscall.SIGUSR1:
-				log.Println("main: received record signal, but already recording")
-				continue
-			case syscall.SIGUSR2:
-				// TODO: Do input_audio_buffer.commit and/or wait for final transcription?
-			case syscall.SIGTERM:
-				cancel()
-				break Listen
+		for {
+			select {
+			case <-ctx.Done():
+			case sig := <-sigChan:
+				switch sig {
+				case syscall.SIGUSR1:
+					log.Println("main: received record signal, but already recording")
+					continue
+				case syscall.SIGUSR2:
+					// TODO: Do input_audio_buffer.commit and/or wait for final transcription?
+				case syscall.SIGTERM:
+					conn.Close()
+					cancel()
+					break Listen
+				}
 			}
+
 			break
 		}
+	
+		log.Println("main: finished transcribing")
+		conn.Close()
 		cancel()
 
 		err = <-errCh

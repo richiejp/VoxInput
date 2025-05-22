@@ -19,7 +19,8 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 
 - `dotool` (for simulating keyboard input)
 - `OPENAI_API_KEY` or `VOXINPUT_API_KEY`: Your OpenAI API key for Whisper transcription. If you have a local instance with no key, then just leave it unset.
-- `OPENAPI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI Whisper API server: defaults to `http://localhost:8080/v1`
+- `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
+- `OPENAI_WS_BASE_URL` or `VOXINPUT_WS_BASE_URL`: The base URL of the realtime websocket API: defaults to `ws://localhost:8080/v1/realtime`
 
 Note that the VoxInput env vars take precedence over the OpenAI ones.
 
@@ -47,19 +48,14 @@ KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
    cd VoxInput
    ```
 
-2. Install dependencies:
+2. Build the project:
    ```bash
-   go mod tidy
+   go build -mod=vendor -o voxinput
    ```
 
-3. Build the project:
-   ```bash
-   go build -o voxinput
-   ```
+3. Ensure `dotool` is installed on your system and it can make key presses.
 
-4. Ensure `dotool` is installed on your system and it can make key presses.
-
-5. It makes sense to bind the `record` and `write` commands to keys using your window manager. For instance in my Sway config I have the following
+4. It makes sense to bind the `record` and `write` commands to keys using your window manager. For instance in my Sway config I have the following
 
 ```
 bindsym $mod+Shift+t exec voxinput record
