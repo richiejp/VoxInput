@@ -7,4 +7,6 @@ require (
 	github.com/gen2brain/malgo v0.11.23
 )
 
+replace github.com/WqyJh/go-openai-realtime => ../go-openai-realtime
+
 require github.com/coder/websocket v1.8.12 // indirect
