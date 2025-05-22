@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -14,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	openairt "github.com/WqyJh/go-openai-realtime"
 	"github.com/gen2brain/malgo"
-	"github.com/sashabaranov/go-openai"
 
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/pid"
@@ -53,6 +54,19 @@ func (rbw *chunkWriter) Write(p []byte) (n int, err error) {
 	return rbw.current.Write(p)
 }
 
+func getEnv(name string, fallback string) (val string) {
+	if val = os.Getenv("VOXINPUT_" + name); val != "" {
+		return val
+	}
+
+	if val = os.Getenv("OPENAI_" + name); val != "" {
+		return val
+	}
+
+	return fallback
+}
+
+// TODO: Reimplment replay
 func listen(pidPath string, replay bool) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
@@ -72,28 +86,15 @@ func listen(pidPath string, replay bool) {
 		MalgoContext: mctx.Context,
 	}
 
-	clientConfig := openai.DefaultConfig(func() string {
-		if key := os.Getenv("VOXINPUT_API_KEY"); key != "" {
-			return key
-		}
-		if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-			return key
-		}
-		return "sk-xxx"
-	}())
-	clientConfig.BaseURL = func() string {
-		if url := os.Getenv("VOXINPUT_BASE_URL"); url != "" {
-			return url
-		}
-		if url := os.Getenv("OPENAI_BASE_URL"); url != "" {
-			return url
-		}
-		return "http://localhost:8080/v1"
-	}()
-	clientConfig.HTTPClient = &http.Client{
-		Timeout: time.Second * 30,
-	}
-	client := openai.NewClientWithConfig(clientConfig)
+	apiKey := getEnv("API_KEY", "sk-xxx")
+	httpApiBase := getEnv("BASE_URL", "http://localhost:8080/v1")
+
+	wsApiBase := getEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
+	rtConf := openairt.DefaultConfig(apiKey)
+	rtConf.BaseURL = wsApiBase
+	rtConf.APIBaseURL = httpApiBase
+	rtConf.HTTPClient = &http.Client{Timeout: time.Second * 10}
+	rtCli := openairt.NewClientWithConfig(rtConf)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGUSR1)
@@ -110,6 +111,8 @@ func listen(pidPath string, replay bool) {
 Listen:
 	for {
 		log.Println("main: Waiting for record signal...")
+
+		ctx, cancel := context.WithCancel(context.Background())
 		for sig := range sigChan {
 			switch sig {
 			case syscall.SIGUSR1:
@@ -117,18 +120,51 @@ Listen:
 				log.Println("main: Received stop/write signal, but wasn't recording")
 				continue
 			case syscall.SIGTERM:
+				cancel()
 				break Listen
 			}
 			break
 		}
 
+		errCh := make(chan error, 1)
+		conn, err := rtCli.Connect(context.Background(), openairt.WithIntent())
+		if err != nil {
+			log.Println("main: realtime connect: ", err)
+			cancel()
+			continue
+		}
+		log.Println("main: Connected to realtime API, waiting for session.created event...")
+
+		// It's not required to wait for this, but the server may take time to startup
+	Read:
+		for {
+			msg, err := conn.ReadMessage(ctx)
+			if err != nil {
+				var permanent *openairt.PermanentError
+				if errors.As(err, &permanent) {
+					log.Println("main: Connection failed: ", err)
+					cancel()
+					continue Listen
+				}
+				log.Println("main: error receiving message, retrying: ", err)
+				continue
+			}
+
+			log.Println("main: received message of type: ", msg.ServerEventType())
+
+			switch msg.ServerEventType() {
+			case openairt.ServerEventTypeError:
+				log.Println("main: Server error: ", msg.(openairt.ErrorEvent).Error.Message)
+			case openairt.ServerEventTypeConversationCreated:
+			case openairt.ServerEventTypeSessionCreated:
+				break Read
+			}
+		}
+
 		log.Println("main: Record/Transcribe...")
 
-		ctx, cancel := context.WithCancel(context.Background())
 		audioChunks := make(chan (*bytes.Buffer), 10)
 		chunkWriter := newChunkWriter(ctx, audioChunks)
-		textChunks := make(chan (string), 10)
-		errCh := make(chan error, 1)
 
 		go func() {
 			if err := audio.Capture(ctx, chunkWriter, streamConfig); err != nil {
@@ -141,74 +177,80 @@ Listen:
 		}()
 
 		go func() {
-			var (
-				headerBuf bytes.Buffer
-				prompt    string
-			)
-			prev := new(bytes.Buffer)
+			var headerBuf bytes.Buffer
+
+			wavHeader := audio.NewWAVHeader(0)
 
 			for {
 				headerBuf.Reset()
 
 				var cur *bytes.Buffer
 				select {
+				// Received from chunkWriter
 				case cur = <-audioChunks:
 					break
 				case <-ctx.Done():
 					return
 				}
 
-				log.Printf("main: transcribing, prev: %d, cur: %d\n", prev.Len(), cur.Len())
+				log.Printf("main: transcribing, %d\n", cur.Len())
 
-				wavHeader := audio.NewWAVHeader(uint32(prev.Len() + cur.Len()))
+				wavHeader.ChunkSize = uint32(cur.Len())
 				if err := wavHeader.Write(&headerBuf); err != nil {
 					errCh <- fmt.Errorf("write wav header: %w", err)
 					cancel()
 					return
 				}
 
-				curReader := bytes.NewReader(cur.Bytes())
-				prevReader := bytes.NewReader(prev.Bytes())
-				wavReader := io.MultiReader(&headerBuf, prevReader, curReader)
-
-				req := openai.AudioRequest{
-					Model:    "whisper-1",
-					FilePath: "S16",
-					Reader:   wavReader,
-					Language: "en",
-					Prompt:   prompt,
-				}
-
-				log.Printf("main: prompt text: \n %s \n", prompt)
-
-				resp, err := client.CreateTranscription(ctx, req)
-				if err != nil {
-					if errors.Is(err, context.Canceled) {
-						return
+				if err := conn.SendMessage(ctx, openairt.InputAudioBufferAppendEvent{
+					EventBase: openairt.EventBase{
+						EventID: "TODO",
+					},
+					Audio: base64.StdEncoding.EncodeToString(cur.Bytes()),
+				}); err != nil {
+					var permanent *openairt.PermanentError
+					if errors.As(err, &permanent) {
+						errCh <- fmt.Errorf("main: connection failed: %w", err)
+						cancel()
+						break
 					}
-					errCh <- fmt.Errorf("transcription: %w", err)
-					cancel()
-					return
+					log.Println("main: error sending message: ", err)
+					continue
 				}
-
-				log.Println("main: transcribed text: ", resp.Text)
-				prompt += resp.Text
-				textChunks <- resp.Text
-				prev = cur
 			}
 		}()
 
 		go func() {
-			var text string
-
 			for {
-				select {
-				case text = <-textChunks:
-					break
-				case <-ctx.Done():
-					return
+				msg, err := conn.ReadMessage(ctx)
+				if err != nil {
+					var permanent *openairt.PermanentError
+					if errors.As(err, &permanent) {
+						log.Println("main: Connection failed: ", err)
+						cancel()
+					}
+					log.Println("main: error receiving message, retrying: ", err)
+					continue
 				}
 
+				log.Println("main: receiving message: ", msg.ServerEventType())
+
+				switch msg.ServerEventType() {
+				case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
+				case openairt.ServerEventTypeError:
+					log.Println("main: server error: ", msg.(openairt.ErrorEvent).Error.Message)
+				default:
+					continue
+				}
+
+				text := msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
+
+				log.Println("main: received transcribed text: ", text)
+
+				if text == "" {
+					continue
+				}
+	
 				dotool := exec.CommandContext(ctx, "dotool")
 				stdin, err := dotool.StdinPipe()
 				if err != nil {
@@ -254,6 +296,7 @@ Listen:
 				log.Println("main: received record signal, but already recording")
 				continue
 			case syscall.SIGUSR2:
+				// TODO: Do input_audio_buffer.commit and/or wait for final transcription?
 			case syscall.SIGTERM:
 				cancel()
 				break Listen
@@ -266,63 +309,5 @@ Listen:
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Fatalln("main: ", err)
 		}
-
-		// reader := bytes.NewReader(buf.Bytes())
-
-		// if replay {
-		// 	log.Println("main: Playing...")
-
-		// 	if err := audio.Playback(context.Background(), reader, streamConfig); err != nil && !errors.Is(err, io.EOF) {
-		// 		log.Fatalln("main: ", fmt.Errorf("audio playback: %w", err))
-		// 	}
-
-		// 	log.Println("main: Playback Done")
-		// }
-
-		// wavHeader := audio.NewWAVHeader(buf.Bytes())
-		// var headerBuf bytes.Buffer
-		// if err := wavHeader.Write(&headerBuf); err != nil {
-		// 	log.Fatalln("main: ", fmt.Errorf("write wav header: %w", err))
-		// }
-
-		// reader.Seek(0, io.SeekStart)
-		// wavReader := io.MultiReader(&headerBuf, reader)
-
-		// req := openai.AudioRequest{
-		// 	Model:    "whisper-1",
-		// 	FilePath: "S16",
-		// 	Reader:   wavReader,
-		// 	Language: "en",
-		// }
-
-		// resp, err := client.CreateTranscription(context.Background(), req)
-		// if err != nil {
-		// 	log.Fatalln("main: ", fmt.Errorf("CreateTranscription: %w", err))
-		// }
-
-		// log.Println("main: transcribed text: ", resp.Text)
-
-		// dotool := exec.Command("dotool")
-		// stdin, err := dotool.StdinPipe()
-		// if err != nil {
-		// 	log.Fatalln("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
-		// }
-		// dotool.Stderr = os.Stderr
-		// if err := dotool.Start(); err != nil {
-		// 	log.Fatalln("main: ", fmt.Errorf("dotool stderr pipe: %w", err))
-		// }
-
-		// _, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
-		// if err != nil {
-		// 	log.Fatalln("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
-		// }
-
-		// if err := stdin.Close(); err != nil {
-		// 	log.Fatalln("main: close dotool stdin: ", err)
-		// }
-
-		// if err := dotool.Wait(); err != nil {
-		// 	log.Fatalln("main: dotool wait: ", err)
-		// }
 	}
 }
