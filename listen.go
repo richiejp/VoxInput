@@ -255,7 +255,7 @@ Listen:
 				if text == "" {
 					continue
 				}
-	
+
 				dotool := exec.CommandContext(ctx, "dotool")
 				stdin, err := dotool.StdinPipe()
 				if err != nil {
@@ -314,14 +314,20 @@ Listen:
 
 			break
 		}
-	
+
 		log.Println("main: finished transcribing")
 		conn.Close()
 		cancel()
 
-		err = <-errCh
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalln("main: ", err)
+		for {
+			select {
+			case err := <-errCh:
+				if err != nil && !errors.Is(err, context.Canceled) {
+					log.Fatalln("main: ", err)
+				}
+			default:
+				continue Listen
+			}
 		}
 	}
 }
