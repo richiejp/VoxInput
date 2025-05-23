@@ -12,11 +12,11 @@ import (
 // StreamConfig describes the parameters for an audio stream.
 // Default values will pick the defaults of the default device.
 type StreamConfig struct {
-	Format     malgo.FormatType
-	Channels   int
-	SampleRate int
-	DeviceType malgo.DeviceType
-  MalgoContext malgo.Context
+	Format       malgo.FormatType
+	Channels     int
+	SampleRate   int
+	DeviceType   malgo.DeviceType
+	MalgoContext malgo.Context
 }
 
 func (config StreamConfig) asDeviceConfig(deviceType malgo.DeviceType) malgo.DeviceConfig {
@@ -33,13 +33,13 @@ func (config StreamConfig) asDeviceConfig(deviceType malgo.DeviceType) malgo.Dev
 		deviceConfig.SampleRate = uint32(config.SampleRate)
 	}
 	if config.DeviceType != 0 {
-	  deviceConfig.DeviceType = config.DeviceType
+		deviceConfig.DeviceType = config.DeviceType
 	}
 	return deviceConfig
 }
 
 func stream(ctx context.Context, abortChan chan error, config StreamConfig, deviceCallbacks malgo.DeviceCallbacks) error {
-  deviceConfig := config.asDeviceConfig(malgo.Capture)
+	deviceConfig := config.asDeviceConfig(malgo.Capture)
 	device, err := malgo.InitDevice(config.MalgoContext, deviceConfig, deviceCallbacks)
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func stream(ctx context.Context, abortChan chan error, config StreamConfig, devi
 // Capturing will commence writing the samples to the writer until either the
 // writer returns an error, or the context signals done.
 func Capture(ctx context.Context, w io.Writer, config StreamConfig) error {
-  config.DeviceType = malgo.Capture
+	config.DeviceType = malgo.Capture
 	abortChan := make(chan error)
 	defer close(abortChan)
 	aborted := false
@@ -99,7 +99,7 @@ func Capture(ctx context.Context, w io.Writer, config StreamConfig) error {
 // Playback will commence playing the samples provided from the reader until either the
 // reader returns an error, or the context signals done.
 func Playback(ctx context.Context, r io.Reader, config StreamConfig) error {
-  config.DeviceType = malgo.Playback
+	config.DeviceType = malgo.Playback
 	abortChan := make(chan error)
 	defer close(abortChan)
 	aborted := false

@@ -8,26 +8,26 @@ import (
 // WAVHeader represents the WAV file header (44 bytes for PCM)
 type WAVHeader struct {
 	// RIFF Chunk (12 bytes)
-	ChunkID       [4]byte
-	ChunkSize     uint32
-	Format        [4]byte
+	ChunkID   [4]byte
+	ChunkSize uint32
+	Format    [4]byte
 
 	// fmt Subchunk (16 bytes)
-	Subchunk1ID     [4]byte
-	Subchunk1Size   uint32
-	AudioFormat     uint16
-	NumChannels     uint16
-	SampleRate      uint32
-	ByteRate        uint32
-	BlockAlign      uint16
-	BitsPerSample   uint16
+	Subchunk1ID   [4]byte
+	Subchunk1Size uint32
+	AudioFormat   uint16
+	NumChannels   uint16
+	SampleRate    uint32
+	ByteRate      uint32
+	BlockAlign    uint16
+	BitsPerSample uint16
 
 	// data Subchunk (8 bytes)
-	Subchunk2ID     [4]byte
-	Subchunk2Size   uint32
+	Subchunk2ID   [4]byte
+	Subchunk2Size uint32
 }
 
-func NewWAVHeader(pcmData []byte) WAVHeader {
+func NewWAVHeader(pcmLen uint32) WAVHeader {
 	header := WAVHeader{
 		ChunkID:       [4]byte{'R', 'I', 'F', 'F'},
 		Format:        [4]byte{'W', 'A', 'V', 'E'},
@@ -40,14 +40,14 @@ func NewWAVHeader(pcmData []byte) WAVHeader {
 		BlockAlign:    2,         // 16-bit = 2 bytes per sample
 		BitsPerSample: 16,
 		Subchunk2ID:   [4]byte{'d', 'a', 't', 'a'},
-		Subchunk2Size: uint32(len(pcmData)),
+		Subchunk2Size: pcmLen,
 	}
 
-	header.ChunkSize = 36 + header.Subchunk2Size 
+	header.ChunkSize = 36 + header.Subchunk2Size
 
 	return header
 }
 
 func (h *WAVHeader) Write(writer io.Writer) error {
-  return binary.Write(writer, binary.LittleEndian, h)
+	return binary.Write(writer, binary.LittleEndian, h)
 }
