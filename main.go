@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"syscall"
+	"time"
 
 	"github.com/richiejp/VoxInput/internal/pid"
 )
@@ -51,6 +52,13 @@ func main() {
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
+		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
+
+		timeout, err := time.ParseDuration(timeoutStr)
+		if err != nil {
+			log.Println("main: failed to parse timeout", err)
+			timeout = time.Second * 30
+		}
 
 		if len(lang) > 2 {
 			lang = lang[:2]
@@ -64,9 +72,9 @@ func main() {
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
 
 		if realtime {
-			listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model)
+			listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, timeout)
 		} else {
-			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay)
+			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout)
 		}
 
 		return
