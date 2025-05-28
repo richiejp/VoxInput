@@ -50,6 +50,7 @@ func main() {
 		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
+		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
 
 		if len(lang) > 2 {
 			lang = lang[:2]
@@ -63,9 +64,9 @@ func main() {
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
 
 		if realtime {
-			listen(pidPath, apiKey, httpApiBase, wsApiBase, lang)
+			listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model)
 		} else {
-			listenOld(pidPath, apiKey, httpApiBase, lang, replay)
+			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay)
 		}
 
 		return

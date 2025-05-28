@@ -111,7 +111,7 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 // TODO: Reimplment replay
-func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang string) {
+func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -187,7 +187,7 @@ Listen:
 			},
 			Session: openairt.ClientTranscriptionSession{
 				InputAudioTranscription: &openairt.InputAudioTranscription{
-					Model: "whisper-1",
+					Model: model,
 					Language: lang,
 				},
 			},
