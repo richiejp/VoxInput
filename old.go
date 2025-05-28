@@ -101,7 +101,8 @@ Listen:
 
 		err = <-errCh
 		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalln("main: ", err)
+			log.Println("main: error while recording: ", err)
+			continue Listen
 		}
 
 		reader := bytes.NewReader(buf.Bytes())
@@ -110,7 +111,7 @@ Listen:
 			log.Println("main: Playing...")
 
 			if err := audio.Playback(context.Background(), reader, streamConfig); err != nil && !errors.Is(err, io.EOF) {
-				log.Fatalln("main: ", fmt.Errorf("audio playback: %w", err))
+				log.Println("main: ", fmt.Errorf("audio playback: %w", err))
 			}
 
 			log.Println("main: Playback Done")
@@ -119,7 +120,8 @@ Listen:
 		wavHeader := audio.NewWAVHeader(uint32(buf.Len()))
 		var headerBuf bytes.Buffer
 		if err := wavHeader.Write(&headerBuf); err != nil {
-			log.Fatalln("main: ", fmt.Errorf("write wav header: %w", err))
+			log.Println("main: ", fmt.Errorf("write wav header: %w", err))
+			continue Listen
 		}
 
 		reader.Seek(0, io.SeekStart)
@@ -135,7 +137,8 @@ Listen:
 
 		resp, err := client.CreateTranscription(context.Background(), req)
 		if err != nil {
-			log.Fatalln("main: ", fmt.Errorf("CreateTranscription: %w", err))
+			log.Println("main: ", fmt.Errorf("CreateTranscription: %w", err))
+			continue Listen
 		}
 
 		log.Println("main: transcribed text: ", resp.Text)
@@ -143,24 +146,24 @@ Listen:
 		dotool := exec.Command("dotool")
 		stdin, err := dotool.StdinPipe()
 		if err != nil {
-			log.Fatalln("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
+			log.Println("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
 		}
 		dotool.Stderr = os.Stderr
 		if err := dotool.Start(); err != nil {
-			log.Fatalln("main: ", fmt.Errorf("dotool stderr pipe: %w", err))
+			log.Println("main: ", fmt.Errorf("dotool start: %w", err))
 		}
 
 		_, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
 		if err != nil {
-			log.Fatalln("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
+			log.Println("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
 		}
 
 		if err := stdin.Close(); err != nil {
-			log.Fatalln("main: close dotool stdin: ", err)
+			log.Println("main: close dotool stdin: ", err)
 		}
 
 		if err := dotool.Wait(); err != nil {
-			log.Fatalln("main: dotool wait: ", err)
+			log.Println("main: dotool wait: ", err)
 		}
 	}
 }
