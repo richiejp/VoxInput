@@ -21,7 +21,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
-func listenOld(pidPath, apiKey, httpApiBase, lang string, replay bool) {
+func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -127,7 +127,7 @@ Listen:
 
 		client := openai.NewClientWithConfig(clientConfig)
 		req := openai.AudioRequest{
-			Model:    "whisper-1",
+			Model:    model,
 			FilePath: "S16",
 			Reader:   wavReader,
 			Language: lang,
