@@ -21,7 +21,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
-func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool) {
+func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool, timeout time.Duration) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -43,7 +43,7 @@ func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool) {
 	clientConfig := openai.DefaultConfig(apiKey)
 	clientConfig.BaseURL = httpApiBase
 	clientConfig.HTTPClient = &http.Client{
-		Timeout: time.Second * 30,
+		Timeout: timeout,
 	}
 
 	sigChan := make(chan os.Signal, 1)

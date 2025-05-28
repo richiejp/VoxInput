@@ -111,7 +111,7 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 // TODO: Reimplment replay
-func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string) {
+func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -133,7 +133,7 @@ func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string) {
 	rtConf := openairt.DefaultConfig(apiKey)
 	rtConf.BaseURL = wsApiBase
 	rtConf.APIBaseURL = httpApiBase
-	rtConf.HTTPClient = &http.Client{Timeout: time.Second * 10}
+	rtConf.HTTPClient = &http.Client{Timeout: timeout}
 	rtCli := openairt.NewClientWithConfig(rtConf)
 
 	sigChan := make(chan os.Signal, 1)
@@ -166,22 +166,25 @@ Listen:
 			break
 		}
 
+		initCtx, finishInit := context.WithTimeout(ctx, timeout)
 		errCh := make(chan error, 1)
-		conn, err := rtCli.Connect(context.Background(), openairt.WithIntent())
+		conn, err := rtCli.Connect(initCtx, openairt.WithIntent())
 		if err != nil {
 			log.Println("main: realtime connect: ", err)
+			finishInit()
 			cancel()
 			continue
 		}
 		log.Println("main: Connected to realtime API, waiting for session.created event...")
 
 		// It's not required to wait for this, but the server may take time to startup
-		if err := waitForSessionUpdated(ctx, conn); err != nil {
+		if err := waitForSessionUpdated(initCtx, conn); err != nil {
+			finishInit()
 			cancel()
 			break Listen
 		}
 
-		err = conn.SendMessage(ctx, openairt.TranscriptionSessionUpdateEvent{
+		err = conn.SendMessage(initCtx, openairt.TranscriptionSessionUpdateEvent{
 			EventBase: openairt.EventBase{
 				EventID: "Initial update",
 			},
@@ -193,11 +196,13 @@ Listen:
 			},
 		})
 
-		if err := waitForSessionUpdated(ctx, conn); err != nil {
+		if err := waitForSessionUpdated(initCtx, conn); err != nil {
+			finishInit()
 			cancel()
 			break Listen
 		}
 
+		finishInit()
 		log.Println("main: Record/Transcribe...")
 
 		audioChunks := make(chan (*bytes.Buffer), 10)
