@@ -54,13 +54,17 @@
               dotool
             ];
 
-            postInstall = with pkgs; ''
+            postInstall = ''
               mv $out/bin/VoxInput $out/bin/voxinput
               wrapProgram $out/bin/voxinput \
-                --prefix PATH : ${lib.makeBinPath [ dotool ]} \
-                --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ libpulseaudio ]}"
+                --prefix PATH : ${lib.makeBinPath [ pkgs.dotool ]}
               mkdir -p $out/lib/udev/rules.d
               echo 'KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"' > $out/lib/udev/rules.d/99-voxinput.rules
+            '';
+
+            postFixup = ''
+              patchelf $out/bin/.voxinput-wrapped \
+                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio ]}
             '';
 
             meta = with pkgs.lib; {
