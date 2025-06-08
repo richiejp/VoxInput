@@ -182,13 +182,21 @@ func sendRequestStream[T streamable](client *Client, req *http.Request) (*stream
 
 func (c *Client) setCommonHeaders(req *http.Request) {
 	// https://learn.microsoft.com/en-us/azure/cognitive-services/openai/reference#authentication
-	// Azure API Key authentication
-	if c.config.APIType == APITypeAzure || c.config.APIType == APITypeCloudflareAzure {
+	switch c.config.APIType {
+	case APITypeAzure, APITypeCloudflareAzure:
+		// Azure API Key authentication
 		req.Header.Set(AzureAPIKeyHeader, c.config.authToken)
-	} else if c.config.authToken != "" {
-		// OpenAI or Azure AD authentication
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.authToken))
+	case APITypeAnthropic:
+		// https://docs.anthropic.com/en/api/versioning
+		req.Header.Set("anthropic-version", c.config.APIVersion)
+	case APITypeOpenAI, APITypeAzureAD:
+		fallthrough
+	default:
+		if c.config.authToken != "" {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.config.authToken))
+		}
 	}
+
 	if c.config.OrgID != "" {
 		req.Header.Set("OpenAI-Organization", c.config.OrgID)
 	}
@@ -285,20 +293,18 @@ func (c *Client) baseURLWithAzureDeployment(baseURL, suffix, model string) (newB
 }
 
 func (c *Client) handleErrorResp(resp *http.Response) error {
-	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "application/json") {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("error, reading response body: %w", err)
-		}
-		return fmt.Errorf("error, status code: %d, status: %s, body: %s", resp.StatusCode, resp.Status, body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("error, reading response body: %w", err)
 	}
 	var errRes ErrorResponse
-	err := json.NewDecoder(resp.Body).Decode(&errRes)
+	err = json.Unmarshal(body, &errRes)
 	if err != nil || errRes.Error == nil {
 		reqErr := &RequestError{
 			HTTPStatus:     resp.Status,
 			HTTPStatusCode: resp.StatusCode,
 			Err:            err,
+			Body:           body,
 		}
 		if errRes.Error != nil {
 			reqErr.Err = errRes.Error

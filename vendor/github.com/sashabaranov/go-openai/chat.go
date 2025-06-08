@@ -14,6 +14,7 @@ const (
 	ChatMessageRoleAssistant = "assistant"
 	ChatMessageRoleFunction  = "function"
 	ChatMessageRoleTool      = "tool"
+	ChatMessageRoleDeveloper = "developer"
 )
 
 const chatCompletionsSuffix = "/chat/completions"
@@ -93,7 +94,7 @@ type ChatMessagePart struct {
 
 type ChatCompletionMessage struct {
 	Role         string `json:"role"`
-	Content      string `json:"content"`
+	Content      string `json:"content,omitempty"`
 	Refusal      string `json:"refusal,omitempty"`
 	MultiContent []ChatMessagePart
 
@@ -102,6 +103,12 @@ type ChatCompletionMessage struct {
 	// - https://github.com/openai/openai-python/blob/main/chatml.md
 	// - https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
 	Name string `json:"name,omitempty"`
+
+	// This property is used for the "reasoning" feature supported by deepseek-reasoner
+	// which is not in the official documentation.
+	// the doc from deepseek:
+	// - https://api-docs.deepseek.com/api/create-chat-completion#responses
+	ReasoningContent string `json:"reasoning_content,omitempty"`
 
 	FunctionCall *FunctionCall `json:"function_call,omitempty"`
 
@@ -118,41 +125,44 @@ func (m ChatCompletionMessage) MarshalJSON() ([]byte, error) {
 	}
 	if len(m.MultiContent) > 0 {
 		msg := struct {
-			Role         string            `json:"role"`
-			Content      string            `json:"-"`
-			Refusal      string            `json:"refusal,omitempty"`
-			MultiContent []ChatMessagePart `json:"content,omitempty"`
-			Name         string            `json:"name,omitempty"`
-			FunctionCall *FunctionCall     `json:"function_call,omitempty"`
-			ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`
-			ToolCallID   string            `json:"tool_call_id,omitempty"`
+			Role             string            `json:"role"`
+			Content          string            `json:"-"`
+			Refusal          string            `json:"refusal,omitempty"`
+			MultiContent     []ChatMessagePart `json:"content,omitempty"`
+			Name             string            `json:"name,omitempty"`
+			ReasoningContent string            `json:"reasoning_content,omitempty"`
+			FunctionCall     *FunctionCall     `json:"function_call,omitempty"`
+			ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+			ToolCallID       string            `json:"tool_call_id,omitempty"`
 		}(m)
 		return json.Marshal(msg)
 	}
 
 	msg := struct {
-		Role         string            `json:"role"`
-		Content      string            `json:"content"`
-		Refusal      string            `json:"refusal,omitempty"`
-		MultiContent []ChatMessagePart `json:"-"`
-		Name         string            `json:"name,omitempty"`
-		FunctionCall *FunctionCall     `json:"function_call,omitempty"`
-		ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`
-		ToolCallID   string            `json:"tool_call_id,omitempty"`
+		Role             string            `json:"role"`
+		Content          string            `json:"content,omitempty"`
+		Refusal          string            `json:"refusal,omitempty"`
+		MultiContent     []ChatMessagePart `json:"-"`
+		Name             string            `json:"name,omitempty"`
+		ReasoningContent string            `json:"reasoning_content,omitempty"`
+		FunctionCall     *FunctionCall     `json:"function_call,omitempty"`
+		ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+		ToolCallID       string            `json:"tool_call_id,omitempty"`
 	}(m)
 	return json.Marshal(msg)
 }
 
 func (m *ChatCompletionMessage) UnmarshalJSON(bs []byte) error {
 	msg := struct {
-		Role         string `json:"role"`
-		Content      string `json:"content"`
-		Refusal      string `json:"refusal,omitempty"`
-		MultiContent []ChatMessagePart
-		Name         string        `json:"name,omitempty"`
-		FunctionCall *FunctionCall `json:"function_call,omitempty"`
-		ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
-		ToolCallID   string        `json:"tool_call_id,omitempty"`
+		Role             string `json:"role"`
+		Content          string `json:"content"`
+		Refusal          string `json:"refusal,omitempty"`
+		MultiContent     []ChatMessagePart
+		Name             string        `json:"name,omitempty"`
+		ReasoningContent string        `json:"reasoning_content,omitempty"`
+		FunctionCall     *FunctionCall `json:"function_call,omitempty"`
+		ToolCalls        []ToolCall    `json:"tool_calls,omitempty"`
+		ToolCallID       string        `json:"tool_call_id,omitempty"`
 	}{}
 
 	if err := json.Unmarshal(bs, &msg); err == nil {
@@ -160,14 +170,15 @@ func (m *ChatCompletionMessage) UnmarshalJSON(bs []byte) error {
 		return nil
 	}
 	multiMsg := struct {
-		Role         string `json:"role"`
-		Content      string
-		Refusal      string            `json:"refusal,omitempty"`
-		MultiContent []ChatMessagePart `json:"content"`
-		Name         string            `json:"name,omitempty"`
-		FunctionCall *FunctionCall     `json:"function_call,omitempty"`
-		ToolCalls    []ToolCall        `json:"tool_calls,omitempty"`
-		ToolCallID   string            `json:"tool_call_id,omitempty"`
+		Role             string `json:"role"`
+		Content          string
+		Refusal          string            `json:"refusal,omitempty"`
+		MultiContent     []ChatMessagePart `json:"content"`
+		Name             string            `json:"name,omitempty"`
+		ReasoningContent string            `json:"reasoning_content,omitempty"`
+		FunctionCall     *FunctionCall     `json:"function_call,omitempty"`
+		ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+		ToolCallID       string            `json:"tool_call_id,omitempty"`
 	}{}
 	if err := json.Unmarshal(bs, &multiMsg); err != nil {
 		return err
@@ -179,7 +190,7 @@ func (m *ChatCompletionMessage) UnmarshalJSON(bs []byte) error {
 type ToolCall struct {
 	// Index is not nil only in chat completion chunk object
 	Index    *int         `json:"index,omitempty"`
-	ID       string       `json:"id"`
+	ID       string       `json:"id,omitempty"`
 	Type     ToolType     `json:"type"`
 	Function FunctionCall `json:"function"`
 }
@@ -255,6 +266,20 @@ type ChatCompletionRequest struct {
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// Disable the default behavior of parallel tool calls by setting it: false.
 	ParallelToolCalls any `json:"parallel_tool_calls,omitempty"`
+	// Store can be set to true to store the output of this completion request for use in distillations and evals.
+	// https://platform.openai.com/docs/api-reference/chat/create#chat-create-store
+	Store bool `json:"store,omitempty"`
+	// Controls effort on reasoning for reasoning models. It can be set to "low", "medium", or "high".
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// Metadata to store with the completion.
+	Metadata map[string]string `json:"metadata,omitempty"`
+	// Configuration for a predicted output.
+	Prediction *Prediction `json:"prediction,omitempty"`
+	// ChatTemplateKwargs provides a way to add non-standard parameters to the request body.
+	// Additional kwargs to pass to the template renderer. Will be accessible by the chat template.
+	// Such as think mode for qwen3. "chat_template_kwargs": {"enable_thinking": false}
+	// https://qwen.readthedocs.io/en/latest/deployment/vllm.html#thinking-non-thinking-modes
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 }
 
 type StreamOptions struct {
@@ -322,6 +347,11 @@ type LogProbs struct {
 	Content []LogProb `json:"content"`
 }
 
+type Prediction struct {
+	Content string `json:"content"`
+	Type    string `json:"type"`
+}
+
 type FinishReason string
 
 const (
@@ -385,7 +415,8 @@ func (c *Client) CreateChatCompletion(
 		return
 	}
 
-	if err = validateRequestForO1Models(request); err != nil {
+	reasoningValidator := NewReasoningValidator()
+	if err = reasoningValidator.Validate(request); err != nil {
 		return
 	}
 
