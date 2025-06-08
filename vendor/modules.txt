@@ -12,7 +12,7 @@ github.com/coder/websocket/internal/xsync
 # github.com/gen2brain/malgo v0.11.23
 ## explicit; go 1.17
 github.com/gen2brain/malgo
-# github.com/sashabaranov/go-openai v1.32.0
+# github.com/sashabaranov/go-openai v1.40.1
 ## explicit; go 1.18
 github.com/sashabaranov/go-openai
 github.com/sashabaranov/go-openai/internal
