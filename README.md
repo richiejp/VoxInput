@@ -52,7 +52,7 @@ KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
 
 2. Build the project:
    ```bash
-   go build -mod=vendor -o voxinput
+   go build -o voxinput
    ```
 
 3. Ensure `dotool` is installed on your system and it can make key presses.
