@@ -1,3 +1,5 @@
+github.com/WqyJh/go-openai-realtime v0.6.0 h1:sG/vqGt4dDoKoYYYQ0MGHZTi8EwWPVe0kJodzlR7ZJE=
+github.com/WqyJh/go-openai-realtime v0.6.0/go.mod h1:BCN7J7AUbfSFkLLVnhGWF2OkvoQ7GqTWrU/w+d+QwR4=
 github.com/WqyJh/jsontools v0.3.1 h1:zKT+DvxUSTji06ZcjsbQzZ48PycFZDI0OGATmmFhJ+U=
 github.com/WqyJh/jsontools v0.3.1/go.mod h1:Gk2OlyXjAJmYNZ0aUbEXGHq4I5ihGRjXxVuUprWtkss=
 github.com/coder/websocket v1.8.12 h1:5bUXkEPPIbewrnkU8LTCLVaxi4N4J8ahufH2vlo4NAo=

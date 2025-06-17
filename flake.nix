@@ -43,7 +43,7 @@
             # Path to the source code
             src = ./.;
 
-            vendorHash = null; #nixpkgs.lib.fakeHash;
+            vendorHash = "sha256-ZMnRHvP4zaJq1BWMC9aR1+e5QMjqTaPV+jL4bv8lMMQ="; #nixpkgs.lib.fakeHash;
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
