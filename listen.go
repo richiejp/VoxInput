@@ -20,6 +20,7 @@ import (
 
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/pid"
+	"github.com/richiejp/VoxInput/internal/gui"
 )
 
 type chunkWriter struct {
@@ -111,7 +112,7 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 // TODO: Reimplment replay
-func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration) {
+func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration, ui *gui.GUI) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -205,6 +206,8 @@ Listen:
 		finishInit()
 		log.Println("main: Record/Transcribe...")
 
+		ui.Chan <- &gui.ShowListeningMsg{}
+
 		audioChunks := make(chan (*bytes.Buffer), 10)
 		chunkWriter := newChunkWriter(ctx, audioChunks)
 
@@ -230,7 +233,6 @@ Listen:
 				select {
 				// Received from chunkWriter
 				case cur = <-audioChunks:
-					break
 				case <-ctx.Done():
 					return
 				}
@@ -356,6 +358,7 @@ Listen:
 			break
 		}
 
+		ui.Chan <- &gui.ShowStoppingMsg{}
 		log.Println("main: finished transcribing")
 		conn.Close()
 		cancel()

@@ -71,6 +71,8 @@ Alternatively you can use the Nix flake.
 The `LANG` and `VOXINPUT_LANG` environment variables are used to tell the transcription service which language to use.
 For multi-lingual use set `VOXINPUT_LANG` to an empty string.
 
+The pop-up window showing when recording has begun can be disabled by setting `VOXINPUT_SHOW_STATUS=no` or `--no-show-status`.
+
 ### Commands
 
 - **`listen`**: Starts the speech-to-text daemon.
@@ -136,7 +138,7 @@ For multi-lingual use set `VOXINPUT_LANG` to an empty string.
 - [x] Put playback behind a debug switch
 - [x] Create a release
 - [x] Realtime Transcription
-- [ ] GUI and system tray
+- [x] GUI and system tray
 - [x] Voice detection and activation (partial, see below)
 - [ ] Code words to start and stop transcription
 - [ ] Allow user to describe a button they want to press (requires submitting screen shot and transcription to LocalAGI)
