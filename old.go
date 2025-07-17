@@ -130,7 +130,7 @@ Listen:
 		client := openai.NewClientWithConfig(clientConfig)
 		req := openai.AudioRequest{
 			Model:    model,
-			FilePath: "S16",
+			FilePath: "audio.wav",
 			Reader:   wavReader,
 			Language: lang,
 		}
