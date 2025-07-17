@@ -15,6 +15,9 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Transcription**: Converts recorded audio into text using a local or remote transcription service.
 - **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool).
 - **Voice Activity Detection**: In realtime mode VoxInput uses VAD to detect speech segments and automatically transcribe them.
+- **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
+
+[![Usage and Installation video](https://i.ytimg.com/vi/bbZ_9-Uzp78/hqdefault.jpg)](https://youtu.be/bbZ_9-Uzp78)
 
 ## Requirements
 
