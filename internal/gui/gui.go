@@ -18,10 +18,16 @@ type Msg interface {
 }
 
 type ShowListeningMsg struct{}
+type ShowSpeechDetectedMsg struct{}
+type ShowTranscribingMsg struct{}
+type HideMsg struct{}
 type ShowStoppingMsg struct{}
 
-func (m *ShowListeningMsg) IsMsg() bool { return true }
-func (m *ShowStoppingMsg) IsMsg() bool { return true }
+func (m *ShowListeningMsg) IsMsg() bool      { return true }
+func (m *ShowSpeechDetectedMsg) IsMsg() bool { return true }
+func (m *ShowTranscribingMsg) IsMsg() bool   { return true }
+func (m *HideMsg) IsMsg() bool               { return true }
+func (m *ShowStoppingMsg) IsMsg() bool       { return true }
 
 type GUI struct {
 	a    fyne.App
@@ -58,6 +64,16 @@ func New(ctx context.Context, showStatus string) *GUI {
 						if showStatus != "" {
 							ui.showStatus("Listening with voice audio detection...", theme.MediaRecordIcon())
 						}
+					case *ShowSpeechDetectedMsg:
+						if showStatus != "" {
+							ui.showStatus("Detected speech...", theme.MediaMusicIcon())
+						}
+					case *ShowTranscribingMsg:
+						if showStatus != "" {
+							ui.showStatus("Transcribing...", theme.FileTextIcon())
+						}
+					case *HideMsg:
+						ui.w.Close()
 					case *ShowStoppingMsg:
 						if showStatus != "" {
 							ui.showStatus("Stopping listening", theme.MediaStopIcon())
@@ -81,19 +97,16 @@ func (g *GUI) Run() {
 }
 
 func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
-	if g.w == nil {
-		g.w = g.a.NewWindow("VoxInput")
-		g.w.SetCloseIntercept(func() {
-			g.w.Hide()
-		})
-		g.w.SetFixedSize(true)
-		g.w.Resize(fyne.NewSize(300, 150))
-	}
+	oldWindow := g.w
+
+	g.w = g.a.NewWindow("VoxInput")
+	g.w.SetFixedSize(true)
+	g.w.Resize(fyne.NewSize(300, 150))
 
 	status := widget.NewLabel(statusText)
 	statusIcon := widget.NewIcon(icon)
 	statusIcon.Resize(fyne.NewSize(100, 100))
-	
+
 	var ticks time.Duration
 	tickTime := time.Millisecond * 50
 	closeTimeout := 1500 * time.Millisecond
@@ -110,6 +123,7 @@ func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
 
 	go func() {
 		ticker := time.NewTicker(tickTime)
+		w := g.w
 
 		for range ticker.C {
 			ticks += tickTime
@@ -118,7 +132,7 @@ func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
 				countDown.SetValue(float64(ticks) / float64(closeTimeout))
 
 				if ticks > closeTimeout {
-					g.w.Hide()
+					w.Close()
 				}
 			})
 
@@ -128,5 +142,8 @@ func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
 		}
 	}()
 
+	if oldWindow != nil {
+		oldWindow.Close()
+	}
 	g.w.Show()
 }

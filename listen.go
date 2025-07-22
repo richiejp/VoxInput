@@ -19,8 +19,8 @@ import (
 	"github.com/gen2brain/malgo"
 
 	"github.com/richiejp/VoxInput/internal/audio"
-	"github.com/richiejp/VoxInput/internal/pid"
 	"github.com/richiejp/VoxInput/internal/gui"
+	"github.com/richiejp/VoxInput/internal/pid"
 )
 
 type chunkWriter struct {
@@ -76,39 +76,39 @@ func getOpenaiEnv(name string, fallback string) string {
 }
 
 func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
-		for {
-			msg, err := conn.ReadMessage(ctx)
-			if err != nil {
-				var permanent *openairt.PermanentError
-				if errors.As(err, &permanent) {
-					log.Println("main: Connection failed: ", err)
-					return err
-				}
-				log.Println("main: error receiving message, retrying: ", err)
-				time.Sleep(250 * time.Millisecond)
-				continue
+	for {
+		msg, err := conn.ReadMessage(ctx)
+		if err != nil {
+			var permanent *openairt.PermanentError
+			if errors.As(err, &permanent) {
+				log.Println("main: Connection failed: ", err)
+				return err
 			}
-
-			log.Println("main: received message of type: ", msg.ServerEventType())
-
-			switch msg.ServerEventType() {
-			case openairt.ServerEventTypeError:
-				log.Println("main: Server error: ", msg.(openairt.ErrorEvent).Error.Message)
-			case openairt.ServerEventTypeConversationCreated:
-			case openairt.ServerEventTypeSessionCreated:
-				fallthrough
-			case openairt.ServerEventTypeTranscriptionSessionUpdated:
-				fallthrough
-			case openairt.ServerEventTypeSessionUpdated:
-				return nil
-			}
-
-			select {
-			case <-ctx.Done():
-				return nil
-			default:
-			}
+			log.Println("main: error receiving message, retrying: ", err)
+			time.Sleep(250 * time.Millisecond)
+			continue
 		}
+
+		log.Println("main: received message of type: ", msg.ServerEventType())
+
+		switch msg.ServerEventType() {
+		case openairt.ServerEventTypeError:
+			log.Println("main: Server error: ", msg.(openairt.ErrorEvent).Error.Message)
+		case openairt.ServerEventTypeConversationCreated:
+		case openairt.ServerEventTypeSessionCreated:
+			fallthrough
+		case openairt.ServerEventTypeTranscriptionSessionUpdated:
+			fallthrough
+		case openairt.ServerEventTypeSessionUpdated:
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+	}
 }
 
 // TODO: Reimplment replay
@@ -191,7 +191,7 @@ Listen:
 			},
 			Session: openairt.ClientTranscriptionSession{
 				InputAudioTranscription: &openairt.InputAudioTranscription{
-					Model: model,
+					Model:    model,
 					Language: lang,
 				},
 			},
@@ -282,6 +282,10 @@ Listen:
 
 				var text string
 				switch msg.ServerEventType() {
+				case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
+					ui.Chan <- &gui.ShowSpeechDetectedMsg{}
+				case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
+					ui.Chan <- &gui.ShowTranscribingMsg{}
 				case openairt.ServerEventTypeResponseAudioTranscriptDone:
 					text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
 				case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
@@ -293,11 +297,13 @@ Listen:
 					continue
 				}
 
-				log.Println("main: received transcribed text: ", text)
-
 				if text == "" {
 					continue
 				}
+
+				ui.Chan <- &gui.HideMsg{}
+
+				log.Println("main: received transcribed text: ", text)
 
 				dotool := exec.CommandContext(ctx, "dotool")
 				stdin, err := dotool.StdinPipe()
