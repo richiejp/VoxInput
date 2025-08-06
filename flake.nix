@@ -40,21 +40,24 @@
         {
           default = pkgs.buildGoModule {
             pname = "voxinput";
-            version = "0.4.0";
+            version = "0.6.0";
 
             # Path to the source code
             src = ./.;
 
-            vendorHash = "sha256-ZMnRHvP4zaJq1BWMC9aR1+e5QMjqTaPV+jL4bv8lMMQ="; #nixpkgs.lib.fakeHash;
+            vendorHash = "sha256-2MFjrEeUK2q40YCZx1TlrDf4bfetvHuGM85NdP+tu1U="; #nixpkgs.lib.fakeHash;
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
+              pkg-config
             ];
 
             # Include runtime dependencies
             buildInputs = with pkgs; [
               libpulseaudio
               dotool
+
+              libGL xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
 
             postInstall = ''
