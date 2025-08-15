@@ -40,12 +40,12 @@
         {
           default = pkgs.buildGoModule {
             pname = "voxinput";
-            version = "0.6.0";
+            version = "0.6.1";
 
             # Path to the source code
             src = ./.;
 
-            vendorHash = "sha256-2MFjrEeUK2q40YCZx1TlrDf4bfetvHuGM85NdP+tu1U="; #nixpkgs.lib.fakeHash;
+            vendorHash = "sha256-0osfAJROLn8Iru576M5lq5dwFaw2PVBs6LBscZf3Vxw="; #nixpkgs.lib.fakeHash;
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
