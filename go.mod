@@ -6,7 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.6.2
 	github.com/WqyJh/go-openai-realtime v0.6.0
 	github.com/gen2brain/malgo v0.11.23
-	github.com/sashabaranov/go-openai v1.41.0
+	github.com/sashabaranov/go-openai v1.41.1
 )
 
 require (
