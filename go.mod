@@ -3,7 +3,7 @@ module github.com/richiejp/VoxInput
 go 1.24.2
 
 require (
-	fyne.io/fyne/v2 v2.6.2
+	fyne.io/fyne/v2 v2.6.3
 	github.com/WqyJh/go-openai-realtime v0.6.0
 	github.com/gen2brain/malgo v0.11.23
 	github.com/sashabaranov/go-openai v1.41.1
