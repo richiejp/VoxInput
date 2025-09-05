@@ -40,7 +40,8 @@
         {
           default = pkgs.buildGoModule {
             pname = "voxinput";
-            version = "0.6.2";
+            # sync with main.go
+            version = lib.strings.removeSuffix "\n" (builtins.readFile ./version.txt);
 
             # Path to the source code
             src = ./.;

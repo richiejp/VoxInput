@@ -1,0 +1,18 @@
+name: Validate Tag
+on:
+  push:
+    tags:
+      - '*'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check tag against version.txt
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION=v$(cat version.txt | tr -d '[:space:]')
+          if [ "$TAG_NAME" != "$VERSION" ]; then
+            echo "Error: Tag '$TAG_NAME' does not match version '$VERSION'"
+            exit 1
+          fi

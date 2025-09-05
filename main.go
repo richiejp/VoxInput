@@ -2,21 +2,29 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/pid"
+	"github.com/richiejp/VoxInput/internal/semver"
 )
 
-// Sync with flake
-const version = "0.4.0"
+//go:embed version.txt
+var version []byte
 
 func main() {
+
+	if err := semver.SetVersion(version); err != nil {
+		fmt.Println("Version format error '%s': %v", string(version), err)
+		os.Exit(1)
+	}
 
 	if len(os.Args) < 2 {
 		fmt.Println("Expected 'listen', 'record', 'write', or 'help' subcommands")
@@ -39,7 +47,7 @@ func main() {
 		fmt.Println("  ver    - Print version")
 		return
 	case "ver":
-		fmt.Printf("v%s\n", version)
+		fmt.Printf("v%s\n", strings.TrimSpace(string(version)))
 		return
 	default:
 	}
