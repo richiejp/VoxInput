@@ -11,9 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Check Nix flake inputs
-        uses: DeterminateSystems/flake-checker-action@main
+        uses: DeterminateSystems/flake-checker-action@v12
       - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@main
+        uses: DeterminateSystems/determinate-nix-action@v3.11.1
       - name: Build default package
         run: nix build
       - name: Run
@@ -21,7 +21,7 @@ jobs:
       - name: Check tag against voxinput ver
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
-          VERSION=$(./voxinput ver | tr -d '[:space:]')
+          VERSION=$(./result/bin/voxinput ver | tr -d '[:space:]')
           if [ "$TAG_NAME" != "$VERSION" ]; then
             echo "Error: Tag '$TAG_NAME' does not match voxinput ver output '$VERSION'"
             exit 1
