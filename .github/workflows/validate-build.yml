@@ -1,8 +1,7 @@
-name: Validate Tag
 on:
+  pull_request:
   push:
-    tags:
-      - '*'
+    branches: [main]
 
 jobs:
   build:
@@ -18,11 +17,3 @@ jobs:
         run: nix build
       - name: Run
         run: result/bin/voxinput ver
-      - name: Check tag against voxinput ver
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          VERSION=$(./voxinput ver | tr -d '[:space:]')
-          if [ "$TAG_NAME" != "$VERSION" ]; then
-            echo "Error: Tag '$TAG_NAME' does not match voxinput ver output '$VERSION'"
-            exit 1
-          fi
