@@ -49,7 +49,7 @@ KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/VoxInput.git
+   git clone https://github.com/richiejp/VoxInput.git
    cd VoxInput
    ```
 
