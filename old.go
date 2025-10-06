@@ -9,7 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
+	// "os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -143,27 +143,57 @@ Listen:
 
 		log.Println("main: transcribed text: ", resp.Text)
 
-		dotool := exec.Command("dotool")
-		stdin, err := dotool.StdinPipe()
+		// dotool := exec.Command("dotool")
+		// stdin, err := dotool.StdinPipe()
+		// if err != nil {
+		// 	log.Println("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
+		// }
+		// dotool.Stderr = os.Stderr
+		// if err := dotool.Start(); err != nil {
+		// 	log.Println("main: ", fmt.Errorf("dotool start: %w", err))
+		// }
+		//
+		// _, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
+		// if err != nil {
+		// 	log.Println("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
+		// }
+		//
+		// if err := stdin.Close(); err != nil {
+		// 	log.Println("main: close dotool stdin: ", err)
+		// }
+		//
+		// if err := dotool.Wait(); err != nil {
+		// 	log.Println("main: dotool wait: ", err)
+		// }
+
+		req2 := openai.ChatCompletionRequest{
+			Model: "gemma-3-4b-it-qat",
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: "You are a bubbly teacher who answers questions for small children and provides them with curious facts and ideas",
+				},
+				{
+					Role:    openai.ChatMessageRoleUser,
+					Content: resp.Text,
+				},
+			},
+			MaxTokens: 512,
+		}
+
+		resp2, err := client.CreateChatCompletion(context.Background(), req2)
 		if err != nil {
-			log.Println("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
-		}
-		dotool.Stderr = os.Stderr
-		if err := dotool.Start(); err != nil {
-			log.Println("main: ", fmt.Errorf("dotool start: %w", err))
+			fmt.Printf("Chat completion error: %v\n", err)
+			os.Exit(1)
 		}
 
-		_, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
-		if err != nil {
-			log.Println("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
+		// Print the response
+		if len(resp2.Choices) > 0 {
+			fmt.Println("Assistant:", resp2.Choices[0].Message.Content)
+		} else {
+			fmt.Println("No response received")
 		}
 
-		if err := stdin.Close(); err != nil {
-			log.Println("main: close dotool stdin: ", err)
-		}
-
-		if err := dotool.Wait(); err != nil {
-			log.Println("main: dotool wait: ", err)
-		}
+		// Add TTS here
 	}
 }
