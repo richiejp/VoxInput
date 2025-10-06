@@ -22,7 +22,7 @@ var version []byte
 func main() {
 
 	if err := semver.SetVersion(version); err != nil {
-		fmt.Println("Version format error '%s': %v", string(version), err)
+		fmt.Printf("Version format error '%s': %v\n", string(version), err)
 		os.Exit(1)
 	}
 
