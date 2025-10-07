@@ -1,17 +1,17 @@
 package main
 
 import (
-	"context"
+	// "context"
 	_ "embed"
 	"fmt"
 	"log"
 	"os"
-	"slices"
+	// "slices"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/richiejp/VoxInput/internal/gui"
+	// "github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/pid"
 	"github.com/richiejp/VoxInput/internal/semver"
 )
@@ -37,9 +37,9 @@ func main() {
 	case "help":
 		fmt.Println("Available commands:")
 		fmt.Println("  listen - Start speech to text daemon")
-		fmt.Println("           --replay play the audio just recorded for transcription")
-		fmt.Println("           --no-realtime use the HTTP API instead of the realtime API; disables VAD")
-		fmt.Println("           --no-show-status don't show when recording has started or stopped")
+		// fmt.Println("           --replay play the audio just recorded for transcription")
+		// fmt.Println("           --no-realtime use the HTTP API instead of the realtime API; disables VAD")
+		// fmt.Println("           --no-show-status don't show when recording has started or stopped")
 		fmt.Println("  record - Tell existing listener to start recording audio. In realtime mode it also begins transcription")
 		fmt.Println("  write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode")
 		fmt.Println("  stop   - Alias for write; makes more sense in realtime mode")
@@ -64,7 +64,7 @@ func main() {
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
-		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
+		// showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -80,30 +80,30 @@ func main() {
 			log.Println("main: language is set to ", lang)
 		}
 
-		if showStatus == "no" || showStatus == "false" {
-			showStatus = ""
-		}
+		// if showStatus == "no" || showStatus == "false" {
+		// 	showStatus = ""
+		// }
+		//
+		// if slices.Contains(os.Args[2:], "--no-show-status") {
+		// 	showStatus = ""
+		// }
 
-		if slices.Contains(os.Args[2:], "--no-show-status") {
-			showStatus = ""
-		}
+		// replay := slices.Contains(os.Args[2:], "--replay")
+		// realtime := !slices.Contains(os.Args[2:], "--no-realtime")
 
-		replay := slices.Contains(os.Args[2:], "--replay")
-		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
+		// if realtime {
+			// ctx, cancel := context.WithCancel(context.Background())
+			// ui := gui.New(ctx, showStatus)
 
-		if realtime {
-			ctx, cancel := context.WithCancel(context.Background())
-			ui := gui.New(ctx, showStatus)
+			// go func() {
+				listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, timeout)
+				// cancel()
+			// }()
 
-			go func() {
-				listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, timeout, ui)
-				cancel()
-			}()
-
-			ui.Run()
-		} else {
-			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout)
-		}
+			// ui.Run()
+		// } else {
+			// listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout)
+		// }
 
 		return
 	}

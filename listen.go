@@ -6,20 +6,18 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 
 	openairt "github.com/WqyJh/go-openai-realtime"
 	"github.com/gen2brain/malgo"
+	"github.com/sashabaranov/go-openai"
 
 	"github.com/richiejp/VoxInput/internal/audio"
-	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
@@ -112,7 +110,7 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 // TODO: Reimplment replay
-func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration, ui *gui.GUI) {
+func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -130,6 +128,13 @@ func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout
 		SampleRate:   24000,
 		MalgoContext: mctx.Context,
 	}
+
+	clientConfig := openai.DefaultConfig(apiKey)
+	clientConfig.BaseURL = httpApiBase
+	clientConfig.HTTPClient = &http.Client{
+		Timeout: timeout,
+	}
+	client := openai.NewClientWithConfig(clientConfig)
 
 	rtConf := openairt.DefaultConfig(apiKey)
 	rtConf.BaseURL = wsApiBase
@@ -206,7 +211,7 @@ Listen:
 		finishInit()
 		log.Println("main: Record/Transcribe...")
 
-		ui.Chan <- &gui.ShowListeningMsg{}
+		// ui.Chan <- &gui.ShowListeningMsg{}
 
 		audioChunks := make(chan (*bytes.Buffer), 10)
 		chunkWriter := newChunkWriter(ctx, audioChunks)
@@ -283,9 +288,9 @@ Listen:
 				var text string
 				switch msg.ServerEventType() {
 				case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
-					ui.Chan <- &gui.ShowSpeechDetectedMsg{}
+					// ui.Chan <- &gui.ShowSpeechDetectedMsg{}
 				case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
-					ui.Chan <- &gui.ShowTranscribingMsg{}
+					// ui.Chan <- &gui.ShowTranscribingMsg{}
 				case openairt.ServerEventTypeResponseAudioTranscriptDone:
 					text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
 				case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
@@ -301,46 +306,39 @@ Listen:
 					continue
 				}
 
-				ui.Chan <- &gui.HideMsg{}
+				// ui.Chan <- &gui.HideMsg{}
 
 				log.Println("main: received transcribed text: ", text)
+				req := openai.ChatCompletionRequest{
+					Model: "gemma-3-4b-it-qat",
+					Messages: []openai.ChatCompletionMessage{
+						{
+							Role:    openai.ChatMessageRoleSystem,
+							Content: "You are a bubbly teacher who answers questions for small children and provides them with curious facts and ideas",
+						},
+						{
+							Role:    openai.ChatMessageRoleUser,
+							Content: text,
+						},
+					},
+					MaxTokens: 512,
+				}
 
-				dotool := exec.CommandContext(ctx, "dotool")
-				stdin, err := dotool.StdinPipe()
+				log.Println("main: Creating chat completion")
+				resp, err := client.CreateChatCompletion(context.Background(), req)
 				if err != nil {
-					errCh <- fmt.Errorf("dotool stdin pipe: %w", err)
-					cancel()
-					return
+					log.Printf("Chat completion error: %v\n", err)
+					continue
 				}
-				dotool.Stderr = os.Stderr
-
-				if err := dotool.Start(); err != nil {
-					errCh <- fmt.Errorf("dotool stderr pipe: %w", err)
-					cancel()
-					return
-				}
-
-				_, err = io.WriteString(stdin, fmt.Sprintf("type %s ", text))
-				if err != nil {
-					errCh <- fmt.Errorf("dotool stdin WriteString: %w", err)
-					cancel()
-					return
+				
+				// Print the response
+				if len(resp.Choices) > 0 {
+					log.Println("Assistant:", resp.Choices[0].Message.Content)
+				} else {
+					log.Println("No response received")
 				}
 
-				if err := stdin.Close(); err != nil {
-					errCh <- fmt.Errorf("close dotool stdin: %w", err)
-					cancel()
-					return
-				}
-
-				if err := dotool.Wait(); err != nil {
-					if errors.Is(err, context.Canceled) {
-						return
-					}
-					errCh <- fmt.Errorf("dotool wait: %w", err)
-					cancel()
-					return
-				}
+				// TODO: Insert TTS here?
 			}
 		}()
 
@@ -364,7 +362,7 @@ Listen:
 			break
 		}
 
-		ui.Chan <- &gui.ShowStoppingMsg{}
+		// ui.Chan <- &gui.ShowStoppingMsg{}
 		log.Println("main: finished transcribing")
 		conn.Close()
 		cancel()
