@@ -23,7 +23,7 @@
               go-tools
 
               libpulseaudio
-              dotool
+              alsa-utils
 
               libGL pkg-config xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
@@ -56,7 +56,7 @@
             # Include runtime dependencies
             buildInputs = with pkgs; [
               libpulseaudio
-              dotool
+              alsa-utils
 
               libGL xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];

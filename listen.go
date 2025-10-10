@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -73,6 +74,30 @@ func getOpenaiEnv(name string, fallback string) string {
 	return getPrefixedEnv([]string{"VOXINPUT", "OPENAI"}, name, fallback)
 }
 
+func playAudio(audioData []byte) error {
+	// Create a temporary file for the audio data
+	tmpFile, err := os.CreateTemp("", "voxinput_tts_*.mp3")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Write audio data to temp file
+	if _, err := tmpFile.Write(audioData); err != nil {
+		return fmt.Errorf("failed to write audio data: %w", err)
+	}
+	tmpFile.Close()
+
+	// Play the audio using aplay
+	cmd := exec.Command("aplay", tmpFile.Name())
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to play audio with aplay: %w", err)
+	}
+
+	return nil
+}
+
 func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 	for {
 		msg, err := conn.ReadMessage(ctx)
@@ -110,7 +135,7 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 // TODO: Reimplment replay
-func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration) {
+func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, chatModel, ttsModel string, timeout time.Duration) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -142,6 +167,9 @@ func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout
 	rtConf.HTTPClient = &http.Client{Timeout: timeout}
 	rtCli := openairt.NewClientWithConfig(rtConf)
 
+	// Conversation history to keep track of up to 10 messages
+	conversationHistory := make([]openai.ChatCompletionMessage, 0, 10)
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGUSR1)
 	signal.Notify(sigChan, syscall.SIGUSR2)
@@ -159,18 +187,18 @@ Listen:
 		log.Println("main: Waiting for record signal...")
 
 		ctx, cancel := context.WithCancel(context.Background())
-		for sig := range sigChan {
-			switch sig {
-			case syscall.SIGUSR1:
-			case syscall.SIGUSR2:
-				log.Println("main: Received stop/write signal, but wasn't recording")
-				continue
-			case syscall.SIGTERM:
-				cancel()
-				break Listen
-			}
-			break
-		}
+		// for sig := range sigChan {
+		// 	switch sig {
+		// 	case syscall.SIGUSR1:
+		// 	case syscall.SIGUSR2:
+		// 		log.Println("main: Received stop/write signal, but wasn't recording")
+		// 		continue
+		// 	case syscall.SIGTERM:
+		// 		cancel()
+		// 		break Listen
+		// 	}
+		// 	break
+		// }
 
 		initCtx, finishInit := context.WithTimeout(ctx, timeout)
 		errCh := make(chan error, 1)
@@ -215,6 +243,7 @@ Listen:
 
 		audioChunks := make(chan (*bytes.Buffer), 10)
 		chunkWriter := newChunkWriter(ctx, audioChunks)
+		transcribedText := make(chan string, 10)
 
 		go func() {
 			if err := audio.Capture(ctx, chunkWriter, streamConfig); err != nil {
@@ -308,20 +337,43 @@ Listen:
 
 				// ui.Chan <- &gui.HideMsg{}
 
+				transcribedText <- text
 				log.Println("main: received transcribed text: ", text)
+			}
+		}()
+
+		go func(){
+			for {
+				var text string
+				select {
+				case <-ctx.Done():
+					return
+				case text = <-transcribedText:
+				}
+
+				// Add user message to conversation history
+				userMessage := openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleUser,
+					Content: text,
+				}
+				conversationHistory = append(conversationHistory, userMessage)
+
+				// Keep only the last 10 messages (including system message)
+				if len(conversationHistory) > 9 {
+					conversationHistory = conversationHistory[len(conversationHistory)-9:]
+				}
+
+				// Prepare messages with system message and conversation history
+				messages := make([]openai.ChatCompletionMessage, 0, len(conversationHistory)+1)
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: "You are a bubbly teacher who answers questions for small children and provides them with curious facts and ideas. Keep your answers as short as possible otherwise the child will not stay engaged. Don't use emojis; your responses will be converted to audio.",
+				})
+				messages = append(messages, conversationHistory...)
+
 				req := openai.ChatCompletionRequest{
-					Model: "gemma-3-4b-it-qat",
-					Messages: []openai.ChatCompletionMessage{
-						{
-							Role:    openai.ChatMessageRoleSystem,
-							Content: "You are a bubbly teacher who answers questions for small children and provides them with curious facts and ideas",
-						},
-						{
-							Role:    openai.ChatMessageRoleUser,
-							Content: text,
-						},
-					},
-					MaxTokens: 512,
+					Model:    chatModel,
+					Messages: messages,
 				}
 
 				log.Println("main: Creating chat completion")
@@ -330,15 +382,65 @@ Listen:
 					log.Printf("Chat completion error: %v\n", err)
 					continue
 				}
-				
+
 				// Print the response
 				if len(resp.Choices) > 0 {
-					log.Println("Assistant:", resp.Choices[0].Message.Content)
+					assistantResponse := resp.Choices[0].Message.Content
+					log.Println("Assistant:", assistantResponse)
+
+					// Add assistant response to conversation history
+					assistantMessage := openai.ChatCompletionMessage{
+						Role:    openai.ChatMessageRoleAssistant,
+						Content: assistantResponse,
+					}
+					conversationHistory = append(conversationHistory, assistantMessage)
+
+					// Keep only the last 10 messages (including system message)
+					if len(conversationHistory) > 9 {
+						conversationHistory = conversationHistory[len(conversationHistory)-9:]
+					}
+
+					// Generate TTS for the assistant response
+					log.Println("main: Generating TTS for response")
+					ttsReq := openai.CreateSpeechRequest{
+						Model: openai.SpeechModel(ttsModel),
+						Input: assistantResponse,
+						Voice: openai.VoiceNova,
+					}
+
+					ttsResp, err := client.CreateSpeech(context.Background(), ttsReq)
+					if err != nil {
+						log.Printf("TTS error: %v\n", err)
+						continue
+					}
+
+					// Read the audio data
+					audioData := make([]byte, 0)
+					buf := make([]byte, 1024)
+					for {
+						n, err := ttsResp.Read(buf)
+						if n > 0 {
+							audioData = append(audioData, buf[:n]...)
+						}
+						if err != nil {
+							break
+						}
+					}
+					ttsResp.Close()
+
+					log.Printf("main: Generated TTS audio, %d bytes\n", len(audioData))
+
+					// Play the audio using aplay
+					if err := playAudio(audioData); err != nil {
+						log.Printf("main: Failed to play audio: %v\n", err)
+					} else {
+						log.Println("main: Audio playback completed")
+					}
+
 				} else {
 					log.Println("No response received")
 				}
 
-				// TODO: Insert TTS here?
 			}
 		}()
 

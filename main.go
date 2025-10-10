@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+
 	// "slices"
 	"strings"
 	"syscall"
@@ -63,6 +64,8 @@ func main() {
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
+		chatModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "CHAT_MODEL", "qwen_qwen3-30b-a3b-instruct-2507")
+		ttsModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "TTS_MODEL", "chatterbox-lucilla")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		// showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 
@@ -92,17 +95,17 @@ func main() {
 		// realtime := !slices.Contains(os.Args[2:], "--no-realtime")
 
 		// if realtime {
-			// ctx, cancel := context.WithCancel(context.Background())
-			// ui := gui.New(ctx, showStatus)
+		// ctx, cancel := context.WithCancel(context.Background())
+		// ui := gui.New(ctx, showStatus)
 
-			// go func() {
-				listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, timeout)
-				// cancel()
-			// }()
+		// go func() {
+		listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, chatModel, ttsModel, timeout)
+		// cancel()
+		// }()
 
-			// ui.Run()
+		// ui.Run()
 		// } else {
-			// listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout)
+		// listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout)
 		// }
 
 		return
