@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -244,6 +245,7 @@ Listen:
 		audioChunks := make(chan (*bytes.Buffer), 10)
 		chunkWriter := newChunkWriter(ctx, audioChunks)
 		transcribedText := make(chan string, 10)
+		var responseProgress int32
 
 		go func() {
 			if err := audio.Capture(ctx, chunkWriter, streamConfig); err != nil {
@@ -269,6 +271,10 @@ Listen:
 				case cur = <-audioChunks:
 				case <-ctx.Done():
 					return
+				}
+
+				if atomic.LoadInt32(&responseProgress) > 0 {
+					continue
 				}
 
 				log.Printf("main: transcribing, %d\n", cur.Len())
@@ -319,6 +325,7 @@ Listen:
 				case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
 					// ui.Chan <- &gui.ShowSpeechDetectedMsg{}
 				case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
+					atomic.AddInt32(&responseProgress, 1)
 					// ui.Chan <- &gui.ShowTranscribingMsg{}
 				case openairt.ServerEventTypeResponseAudioTranscriptDone:
 					text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
@@ -337,6 +344,7 @@ Listen:
 
 				// ui.Chan <- &gui.HideMsg{}
 
+				atomic.AddInt32(&responseProgress, 1)
 				transcribedText <- text
 				log.Println("main: received transcribed text: ", text)
 			}
@@ -383,6 +391,7 @@ Listen:
 					continue
 				}
 
+				atomic.AddInt32(&responseProgress, 1)
 				// Print the response
 				if len(resp.Choices) > 0 {
 					assistantResponse := resp.Choices[0].Message.Content
@@ -413,6 +422,7 @@ Listen:
 						log.Printf("TTS error: %v\n", err)
 						continue
 					}
+					atomic.AddInt32(&responseProgress, 1)
 
 					// Read the audio data
 					audioData := make([]byte, 0)
@@ -441,6 +451,7 @@ Listen:
 					log.Println("No response received")
 				}
 
+				atomic.StoreInt32(&responseProgress, 0)
 			}
 		}()
 
