@@ -30,9 +30,14 @@ func (m *HideMsg) IsMsg() bool               { return true }
 func (m *ShowStoppingMsg) IsMsg() bool       { return true }
 
 type GUI struct {
-	a    fyne.App
-	w    fyne.Window
-	Chan chan Msg
+	a           fyne.App
+	w           fyne.Window
+	Chan        chan Msg
+	cancelTimer context.CancelFunc
+	timerCtx    context.Context
+	statusLabel *widget.Label
+	statusIcon  *widget.Icon
+	countDown   *widget.ProgressBar
 }
 
 // TODO:: The App Icon does not work in the sys tray: https://github.com/fyne-io/fyne/issues/3968
@@ -73,7 +78,12 @@ func New(ctx context.Context, showStatus string) *GUI {
 							ui.showStatus("Transcribing...", theme.FileTextIcon())
 						}
 					case *HideMsg:
-						ui.w.Close()
+						if ui.cancelTimer != nil {
+							ui.cancelTimer()
+						}
+						if ui.w != nil {
+							ui.w.Hide()
+						}
 					case *ShowStoppingMsg:
 						if showStatus != "" {
 							ui.showStatus("Stopping listening", theme.MediaStopIcon())
@@ -97,53 +107,78 @@ func (g *GUI) Run() {
 }
 
 func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
-	oldWindow := g.w
+	// Cancel any existing timer goroutine
+	if g.cancelTimer != nil {
+		g.cancelTimer()
+	}
 
-	g.w = g.a.NewWindow("VoxInput")
-	g.w.SetFixedSize(true)
-	g.w.Resize(fyne.NewSize(300, 150))
+	// Create window and widgets only once
+	if g.w == nil {
+		g.w = g.a.NewWindow("VoxInput")
+		g.w.SetFixedSize(true)
+		g.w.Resize(fyne.NewSize(300, 150))
 
-	status := widget.NewLabel(statusText)
-	statusIcon := widget.NewIcon(icon)
-	statusIcon.Resize(fyne.NewSize(100, 100))
+		g.statusLabel = widget.NewLabel(statusText)
+		g.statusIcon = widget.NewIcon(icon)
+		g.statusIcon.Resize(fyne.NewSize(100, 100))
+
+		g.countDown = widget.NewProgressBar()
+		g.countDown.TextFormatter = func() string {
+			return ""
+		}
+
+		g.w.SetContent(container.NewGridWithColumns(1,
+			g.statusLabel,
+			g.statusIcon,
+			g.countDown,
+		))
+	} else {
+		// Update existing widgets
+		g.statusLabel.SetText(statusText)
+		g.statusIcon.SetResource(icon)
+	}
 
 	var ticks time.Duration
 	tickTime := time.Millisecond * 50
 	closeTimeout := 1500 * time.Millisecond
-	countDown := widget.NewProgressBar()
-	countDown.TextFormatter = func() string {
+
+	// Update formatter with fresh state
+	g.countDown.TextFormatter = func() string {
 		return fmt.Sprintf("Closing in %.2fs", closeTimeout.Seconds()-ticks.Seconds())
 	}
+	g.countDown.SetValue(0)
+	g.countDown.Refresh()
 
-	g.w.SetContent(container.NewGridWithColumns(1,
-		status,
-		statusIcon,
-		countDown,
-	))
+	// Create a new context for this timer
+	g.timerCtx, g.cancelTimer = context.WithCancel(context.Background())
+	timerCtx := g.timerCtx
 
 	go func() {
 		ticker := time.NewTicker(tickTime)
-		w := g.w
+		defer ticker.Stop()
 
-		for range ticker.C {
-			ticks += tickTime
+		for {
+			select {
+			case <-timerCtx.Done():
+				// Timer was cancelled, exit goroutine
+				return
+			case <-ticker.C:
+				ticks += tickTime
 
-			fyne.Do(func() {
-				countDown.SetValue(float64(ticks) / float64(closeTimeout))
+				fyne.Do(func() {
+					g.countDown.SetValue(float64(ticks) / float64(closeTimeout))
+
+					if ticks > closeTimeout {
+						g.w.Hide()
+					}
+				})
 
 				if ticks > closeTimeout {
-					w.Close()
+					return
 				}
-			})
-
-			if ticks > closeTimeout {
-				return
 			}
 		}
 	}()
 
-	if oldWindow != nil {
-		oldWindow.Close()
-	}
 	g.w.Show()
 }
