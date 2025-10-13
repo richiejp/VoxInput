@@ -196,6 +196,9 @@ Listen:
 					Model:    model,
 					Language: lang,
 				},
+				TurnDetection: &openairt.ClientTurnDetection{
+					Type: openairt.ClientTurnDetectionTypeServerVad,
+				},
 			},
 		})
 
