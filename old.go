@@ -51,12 +51,25 @@ func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool, ti
 	signal.Notify(sigChan, syscall.SIGUSR2)
 	signal.Notify(sigChan, syscall.SIGTERM)
 
+	statePath, err := pid.StatePath()
+	if err != nil {
+		log.Fatalln("main: failed to get state file path: ", err)
+	}
+
 	err = pid.Write(pidPath)
 	defer func() {
 		if err := os.Remove(pidPath); err != nil {
 			log.Println("main: failed to remove PID file: ", err)
 		}
+		if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
+			log.Println("main: failed to remove state file: ", err)
+		}
 	}()
+
+	// Initialize state as idle
+	if err := pid.WriteState(statePath, false); err != nil {
+		log.Println("main: failed to write initial state: ", err)
+	}
 
 Listen:
 	for {
@@ -74,6 +87,11 @@ Listen:
 		}
 
 		log.Println("main: Recording...")
+
+		// Set state to recording
+		if err := pid.WriteState(statePath, true); err != nil {
+			log.Println("main: failed to write recording state: ", err)
+		}
 
 		var buf bytes.Buffer
 		ctx, cancel := context.WithCancel(context.Background())
@@ -98,6 +116,11 @@ Listen:
 			break
 		}
 		cancel()
+
+		// Set state back to idle
+		if err := pid.WriteState(statePath, false); err != nil {
+			log.Println("main: failed to write idle state: ", err)
+		}
 
 		err = <-errCh
 		if err != nil && !errors.Is(err, context.Canceled) {
