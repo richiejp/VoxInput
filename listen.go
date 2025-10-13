@@ -97,6 +97,8 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 		case openairt.ServerEventTypeConversationCreated:
 		case openairt.ServerEventTypeSessionCreated:
 			fallthrough
+		case openairt.ServerEventTypeTranscriptionSessionCreated:
+			fallthrough
 		case openairt.ServerEventTypeTranscriptionSessionUpdated:
 			fallthrough
 		case openairt.ServerEventTypeSessionUpdated:

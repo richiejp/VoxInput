@@ -9,6 +9,8 @@ require (
 	github.com/sashabaranov/go-openai v1.41.2
 )
 
+replace github.com/WqyJh/go-openai-realtime v0.6.0 => github.com/richiejp/go-openai-realtime v0.6.1-fix-created-event
+
 require (
 	fyne.io/systray v1.11.0 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
