@@ -43,3 +43,39 @@ func Read(path string) (int, error) {
 
 	return pid, nil
 }
+
+func StatePath() (string, error) {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		return "", fmt.Errorf("XDG_RUNTIME_DIR is not set. Cannot determine a sensible location for the state file.")
+	}
+
+	return filepath.Join(runtimeDir, "VoxInput.state"), nil
+}
+
+func WriteState(path string, recording bool) error {
+	state := "idle"
+	if recording {
+		state = "recording"
+	}
+
+	err := os.WriteFile(path, []byte(state), 0644)
+	if err != nil {
+		return fmt.Errorf("Failed to write state file: %w", err)
+	}
+
+	return nil
+}
+
+func ReadState(path string) (bool, error) {
+	buf, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("pid: failed to read state file: %s: %w", path, err)
+	}
+
+	state := string(buf)
+	return state == "recording", nil
+}
