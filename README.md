@@ -93,6 +93,16 @@ The pop-up window showing when recording has begun can be disabled by setting `V
   ./voxinput write
   ```
 
+- **`toggle`**: Toggle recording on/off (start recording if idle, stop if recording). Only works in realtime mode.
+  ```bash
+  ./voxinput toggle
+  ```
+
+- **`status`**: Show whether the server is listening and if it's currently recording. Only works in realtime mode.
+  ```bash
+  ./voxinput status
+  ```
+
 - **`help`**: Displays help information.
   ```bash
   ./voxinput help
@@ -135,6 +145,10 @@ The pop-up window showing when recording has begun can be disabled by setting `V
    ```
 
 4. The transcribed text will be typed into the active application.
+
+### Displaying recording status
+
+The realtime mode has a UI to display various actions being taken by VoxInput. However you can also read the status from the status file or using the status command, then display it via your desktop manager (e.g. waybar). For an example see the [PR which added it](https://github.com/richiejp/VoxInput/pull/26).
 
 ## TODO
 
