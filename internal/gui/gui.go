@@ -107,12 +107,10 @@ func (g *GUI) Run() {
 }
 
 func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
-	// Cancel any existing timer goroutine
 	if g.cancelTimer != nil {
 		g.cancelTimer()
 	}
 
-	// Create window and widgets only once
 	if g.w == nil {
 		g.w = g.a.NewWindow("VoxInput")
 		g.w.SetFixedSize(true)
@@ -133,7 +131,6 @@ func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
 			g.countDown,
 		))
 	} else {
-		// Update existing widgets
 		g.statusLabel.SetText(statusText)
 		g.statusIcon.SetResource(icon)
 	}
@@ -142,14 +139,12 @@ func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
 	tickTime := time.Millisecond * 50
 	closeTimeout := 1500 * time.Millisecond
 
-	// Update formatter with fresh state
 	g.countDown.TextFormatter = func() string {
 		return fmt.Sprintf("Closing in %.2fs", closeTimeout.Seconds()-ticks.Seconds())
 	}
 	g.countDown.SetValue(0)
 	g.countDown.Refresh()
 
-	// Create a new context for this timer
 	g.timerCtx, g.cancelTimer = context.WithCancel(context.Background())
 	timerCtx := g.timerCtx
 
@@ -160,7 +155,6 @@ func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
 		for {
 			select {
 			case <-timerCtx.Done():
-				// Timer was cancelled, exit goroutine
 				return
 			case <-ticker.C:
 				ticks += tickTime

@@ -159,7 +159,6 @@ func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout
 		}
 	}()
 
-	// Initialize state as idle
 	if err := pid.WriteState(statePath, false); err != nil {
 		log.Println("main: failed to write initial state: ", err)
 	}
@@ -224,7 +223,6 @@ Listen:
 		finishInit()
 		log.Println("main: Record/Transcribe...")
 
-		// Set state to recording
 		if err := pid.WriteState(statePath, true); err != nil {
 			log.Println("main: failed to write recording state: ", err)
 		}

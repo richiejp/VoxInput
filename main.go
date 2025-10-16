@@ -64,44 +64,6 @@ func main() {
 		log.Fatalln("main: failed to get state file path: ", err)
 	}
 
-	// Handle status command
-	if cmd == "status" {
-		// Check if server is listening
-		id, err := pid.Read(pidPath)
-		listening := false
-		if err == nil {
-			// Check if process is actually running
-			proc, err := os.FindProcess(id)
-			if err == nil {
-				// On Unix, sending signal 0 tests if process exists
-				err = proc.Signal(syscall.Signal(0))
-				listening = (err == nil)
-			}
-		}
-
-		// Check if recording
-		recording, err := pid.ReadState(statePath)
-		if err != nil {
-			log.Println("main: warning: failed to read state: ", err)
-		}
-
-		if listening {
-			fmt.Println("Server: listening")
-		} else {
-			fmt.Println("Server: not running")
-		}
-
-		if listening {
-			if recording {
-				fmt.Println("Status: recording")
-			} else {
-				fmt.Println("Status: idle")
-			}
-		}
-
-		return
-	}
-
 	if cmd == "listen" {
 		apiKey := getOpenaiEnv("API_KEY", "sk-xxx")
 		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
@@ -172,6 +134,22 @@ func main() {
 	case "write":
 		log.Println("main: Sending stop/write signal")
 		err = proc.Signal(syscall.SIGUSR2)
+	case "status":
+		err = proc.Signal(syscall.Signal(0))
+		if err != nil {
+			log.Fatalln("main: Failed to signal listen process: ", err)
+		}
+
+		recording, err := pid.ReadState(statePath)
+		if err != nil {
+			log.Fatalln("main: Failed to read state file: ", err)
+		}
+
+		if recording {
+			fmt.Println("recording")
+		} else {
+			fmt.Println("idle")
+		}
 	case "toggle":
 		// Read current state
 		recording, readErr := pid.ReadState(statePath)
