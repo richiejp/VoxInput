@@ -146,6 +146,23 @@ The pop-up window showing when recording has begun can be disabled by setting `V
 
 4. The transcribed text will be typed into the active application.
 
+### Quick start with LocalAI
+
+1. Follow https://localai.io/installation/ to install LocalAI, the simplest way is using Docker:
+
+```bash
+docker run -p 8080:8080 --name local-ai -ti localai/localai:latest
+```
+
+2. Open http://localhost:8080 in your browser to access the LocalAI web interface and install the whisper-1 and silero-vad-ggml models.
+
+3. Test out VoxInput:
+
+```
+VOXINPUT_TRANSCRIPTION_MODEL=whisper-1 VOXINPUT_TRANSCRIPTION_TIMEOUT=30s voxinput listen
+voxinput record && wait 30s && voxinput write
+```
+
 ### Displaying recording status
 
 The realtime mode has a UI to display various actions being taken by VoxInput. However you can also read the status from the status file or using the status command, then display it via your desktop manager (e.g. waybar). For an example see the [PR which added it](https://github.com/richiejp/VoxInput/pull/26).
