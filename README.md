@@ -160,7 +160,7 @@ docker run -p 8080:8080 --name local-ai -ti localai/localai:latest
 
 ```
 VOXINPUT_TRANSCRIPTION_MODEL=whisper-1 VOXINPUT_TRANSCRIPTION_TIMEOUT=30s voxinput listen
-voxinput record && wait 30s && voxinput write
+voxinput record && sleep 30s && voxinput write
 ```
 
 ### Displaying recording status
