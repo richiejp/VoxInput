@@ -11,7 +11,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 ## Features
 
 - **Speech-to-Text Daemon**: Runs as a background process to listen for signals to start or stop recording audio.
-- **Audio Capture and Playback**: Records audio from the microphone and plays it back for verification.
+- **Audio Capture**: Records audio from the microphone or any other device, including audio you are listening to.
 - **Transcription**: Converts recorded audio into text using a local or remote transcription service.
 - **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool).
 - **Voice Activity Detection**: In realtime mode VoxInput uses VAD to detect speech segments and automatically transcribe them.
@@ -24,11 +24,15 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - `dotool` (for simulating keyboard input)
 - `OPENAI_API_KEY` or `VOXINPUT_API_KEY`: Your OpenAI API key for Whisper transcription. If you have a local instance with no key, then just leave it unset.
 - `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
-- `OPENAI_WS_BASE_URL` or `VOXINPUT_WS_BASE_URL`: The base URL of the realtime websocket API: defaults to `ws://localhost:8080/v1/realtime`
-- OpenAI Realtime API support - VoxInput's realtime mode with VAD requires a [websocket endpoint that support's OpenAI's realtime API in transcription only mode](https://github.com/mudler/LocalAI/pull/5392). You can disable realtime mode with `--no-realtime`.
+- `XDG_RUNTIME_DIR`: Required for PID and state files in `$XDG_RUNTIME_DIR`.
+- `VOXINPUT_LANG`: Language code for transcription (defaults to empty).
+- `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
+- `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
+- `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
+- `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
+- `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
 
-Note that the VoxInput env vars take precedence over the OpenAI ones.
-
+**Note**: `VOXINPUT_` vars take precedence over `OPENAI_` vars.
 Unless you don't mind running VoxInput as root, then you also need to ensure the following is setup for `dotool`
 
 - Your user is in the `input` user group
@@ -78,34 +82,48 @@ The pop-up window showing when recording has begun can be disabled by setting `V
 
 ### Commands
 
-- **`listen`**: Starts the speech-to-text daemon.
+- **`listen`**: Start speech to text daemon.
+  - `--replay`: Play the audio just recorded for transcription (non-realtime mode only).
+  - `--no-realtime`: Use the HTTP API instead of the realtime API; disables VAD.
+  - `--no-show-status`: Don't show when recording has started or stopped.
+  - `--output-file <path>`: Save transcript to file instead of typing.
   ```bash
   ./voxinput listen
   ```
 
-- **`record`**: Sends a signal to the daemon to start recording audio then exits. In realtime mode this will start transcription.
+- **`record`**: Tell existing listener to start recording audio. In realtime mode it also begins transcription.
   ```bash
   ./voxinput record
   ```
 
-- **`write`** or **`stop`**: Sends a signal to the daemon to stop recording. When not in realtime mode this triggers transcription.
+- **`write`** or **`stop`**: Tell existing listener to stop recording audio and begin transcription if not in realtime mode. `stop` alias makes more sense in realtime mode.
   ```bash
   ./voxinput write
   ```
 
-- **`toggle`**: Toggle recording on/off (start recording if idle, stop if recording). Only works in realtime mode.
+- **`toggle`**: Toggle recording on/off (start recording if idle, stop if recording).
   ```bash
   ./voxinput toggle
   ```
 
-- **`status`**: Show whether the server is listening and if it's currently recording. Only works in realtime mode.
+- **`status`**: Show whether the server is listening and if it's currently recording.
   ```bash
   ./voxinput status
   ```
 
-- **`help`**: Displays help information.
+- **`devices`**: List capture devices.
+  ```bash
+  ./voxinput devices
+  ```
+
+- **`help`**: Show help message.
   ```bash
   ./voxinput help
+  ```
+
+- **`ver`**: Print version.
+  ```bash
+  ./voxinput ver
   ```
 
 ### Example Realtime Workflow
@@ -146,6 +164,42 @@ The pop-up window showing when recording has begun can be disabled by setting `V
 
 4. The transcribed text will be typed into the active application.
 
+### Example Workflow: Transcribing an Online Meeting or Video Stream
+
+To create a transcript of an online meeting or video stream by capturing system audio:
+
+1. List available capture devices:
+
+   ```bash
+   ./voxinput devices
+   ```
+
+   Identify the monitor device, e.g., "Monitor of Built-in Audio Analog Stereo".
+
+2. Start the daemon specifying the device and output file:
+
+   ```bash
+   VOXINPUT_CAPTURE_DEVICE="Monitor of Built-in Audio Analog Stereo" ./voxinput listen --output-file meeting_transcript.txt
+   ```
+
+   Note: Add `--no-realtime` if you prefer the HTTP API.
+
+3. Start recording:
+
+   ```bash
+   ./voxinput record
+   ```
+
+4. Play your online meeting or video stream; the system audio will be captured.
+
+5. Stop recording:
+
+   ```bash
+   ./voxinput stop
+   ```
+
+6. The transcript is now in `meeting_transcript.txt`.
+
 ### Quick start with LocalAI
 
 1. Follow https://localai.io/installation/ to install LocalAI, the simplest way is using Docker:
@@ -182,10 +236,6 @@ The realtime mode has a UI to display various actions being taken by VoxInput. H
 - `SIGUSR1`: Start recording audio.
 - `SIGUSR2`: Stop recording and transcribe audio.
 - `SIGTERM`: Stop the daemon.
-
-## Limitations
-
-- Uses the default audio input, make sure you have the device you want to use set as the default on your system.
 
 ## License
 

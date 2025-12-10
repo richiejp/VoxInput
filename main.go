@@ -36,19 +36,32 @@ func main() {
 
 	switch cmd {
 	case "help":
-		fmt.Println("Available commands:")
-		fmt.Println("  listen - Start speech to text daemon")
-		fmt.Println("           --replay play the audio just recorded for transcription")
-		fmt.Println("           --no-realtime use the HTTP API instead of the realtime API; disables VAD")
-		fmt.Println("           --no-show-status don't show when recording has started or stopped")
-		fmt.Println("  record - Tell existing listener to start recording audio. In realtime mode it also begins transcription")
-		fmt.Println("  write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode")
-		fmt.Println("  stop   - Alias for write; makes more sense in realtime mode")
-		fmt.Println("  toggle - Toggle recording on/off (start recording if idle, stop if recording)")
-		fmt.Println("  status - Show whether the server is listening and if it's currently recording")
-		fmt.Println("  devices - List capture devices")
-		fmt.Println("  help   - Show this help message")
-		fmt.Println("  ver    - Print version")
+		fmt.Println(`Available commands:
+  listen - Start speech to text daemon
+           --replay play the audio just recorded for transcription
+           --no-realtime use the HTTP API instead of the realtime API; disables VAD
+           --no-show-status don't show when recording has started or stopped
+           --output-file <path> Write transcribed text to file instead of keyboard
+  record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
+  write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
+  stop   - Alias for write; makes more sense in realtime mode
+  toggle - Toggle recording on/off (start recording if idle, stop if recording)
+  status - Show whether the server is listening and if it's currently recording
+  devices - List capture devices
+  help   - Show this help message
+  ver    - Print version
+
+Environment variables:
+  VOXINPUT_API_KEY or OPENAI_API_KEY - OpenAI API key (default: sk-xxx)
+  VOXINPUT_BASE_URL or OPENAI_BASE_URL - HTTP API base URL (default: http://localhost:8080/v1)
+  VOXINPUT_WS_BASE_URL or OPENAI_WS_BASE_URL - WebSocket API base URL (default: ws://localhost:8080/v1/realtime)
+  VOXINPUT_LANG or LANG - Language code for transcription (default: none)
+  VOXINPUT_TRANSCRIPTION_MODEL or TRANSCRIPTION_MODEL - Transcription model (default: whisper-1)
+  VOXINPUT_TRANSCRIPTION_TIMEOUT or TRANSCRIPTION_TIMEOUT - Transcription timeout (default: 30s)
+  VOXINPUT_SHOW_STATUS or SHOW_STATUS - Show status notifications (yes/no, default: yes)
+  VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
+  VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
+  XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
 	case "ver":
 		fmt.Printf("v%s\n", strings.TrimSpace(string(version)))
@@ -75,7 +88,9 @@ func main() {
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
-		
+
+		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
+
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
 			log.Println("main: failed to parse timeout", err)
@@ -101,21 +116,34 @@ func main() {
 		replay := slices.Contains(os.Args[2:], "--replay")
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
 
+		var outputFileArg string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--output-file" && i+1 < len(os.Args) {
+				outputFileArg = os.Args[i+1]
+				break
+			}
+		}
+		if outputFileArg != "" {
+			outputFile = outputFileArg
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath: pidPath,
-					APIKey: apiKey,
-					HTTPAPIBase: httpApiBase,
-					WSAPIBase: wsApiBase,
-					Lang: lang,
-					Model: model,
-					Timeout: timeout,
-					UI: ui,
+					PIDPath:       pidPath,
+					APIKey:        apiKey,
+					HTTPAPIBase:   httpApiBase,
+					WSAPIBase:     wsApiBase,
+					Lang:          lang,
+					Model:         model,
+					Timeout:       timeout,
+					UI:            ui,
 					CaptureDevice: captureDeviceName,
+					OutputFile:    outputFile,
 				})
 				cancel()
 			}()
