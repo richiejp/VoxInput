@@ -114,15 +114,16 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 type ListenConfig struct {
-	PIDPath string
-	APIKey string
-	HTTPAPIBase string
-	WSAPIBase string
-	Lang string
-	Model string
-	Timeout time.Duration
-	UI *gui.GUI
+	PIDPath       string
+	APIKey        string
+	HTTPAPIBase   string
+	WSAPIBase     string
+	Lang          string
+	Model         string
+	Timeout       time.Duration
+	UI            *gui.GUI
 	CaptureDevice string
+	OutputFile    string
 }
 
 func listen(config ListenConfig) {
@@ -348,6 +349,21 @@ Listen:
 				config.UI.Chan <- &gui.HideMsg{}
 
 				log.Println("main: received transcribed text: ", text)
+
+				if config.OutputFile != "" {
+					f, err := os.OpenFile(config.OutputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+					if err != nil {
+						log.Printf("Failed to open output file %s: %v\n", config.OutputFile, err)
+						continue
+					}
+					if _, err := fmt.Fprintln(f, text); err != nil {
+						log.Printf("Failed to write to output file: %v\n", err)
+					}
+					if err := f.Close(); err != nil {
+						log.Printf("Failed to close output file: %v\n", err)
+					}
+					continue
+				}
 
 				dotool := exec.CommandContext(ctx, "dotool")
 				stdin, err := dotool.StdinPipe()
