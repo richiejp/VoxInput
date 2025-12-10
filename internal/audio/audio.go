@@ -2,7 +2,9 @@ package audio
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strings"
 
 	"github.com/gen2brain/malgo"
 )
@@ -12,11 +14,12 @@ import (
 // StreamConfig describes the parameters for an audio stream.
 // Default values will pick the defaults of the default device.
 type StreamConfig struct {
-	Format       malgo.FormatType
-	Channels     int
-	SampleRate   int
-	DeviceType   malgo.DeviceType
-	MalgoContext malgo.Context
+	Format          malgo.FormatType
+	Channels        int
+	SampleRate      int
+	DeviceType      malgo.DeviceType
+	MalgoContext    malgo.Context
+	CaptureDeviceID *malgo.DeviceID
 }
 
 func (config StreamConfig) asDeviceConfig(deviceType malgo.DeviceType) malgo.DeviceConfig {
@@ -35,7 +38,30 @@ func (config StreamConfig) asDeviceConfig(deviceType malgo.DeviceType) malgo.Dev
 	if config.DeviceType != 0 {
 		deviceConfig.DeviceType = config.DeviceType
 	}
+	if config.CaptureDeviceID != nil {
+		deviceConfig.Capture.DeviceID = config.CaptureDeviceID.Pointer()
+	}
 	return deviceConfig
+}
+
+// SetCaptureDeviceByName sets the capture DeviceID by matching device name.
+// Returns true if found and set.
+func (c *StreamConfig) SetCaptureDeviceByName(mctx *malgo.Context, name string) (bool, error) {
+	if name == "" {
+		return false, nil
+	}
+	devices, err := mctx.Devices(malgo.Capture)
+	if err != nil {
+		return false, err
+	}
+	for _, d := range devices {
+		if strings.TrimSpace(d.Name()) == name {
+			id := malgo.DeviceID(d.ID)
+			c.CaptureDeviceID = &id
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func stream(ctx context.Context, abortChan chan error, config StreamConfig, deviceCallbacks malgo.DeviceCallbacks) error {
@@ -63,6 +89,35 @@ func stream(ctx context.Context, abortChan chan error, config StreamConfig, devi
 	}
 
 	return err
+}
+
+// ListCaptureDevices returns all available capture devices with their names and IDs.
+func ListCaptureDevices() error {
+	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
+	if err != nil {
+		return err
+	}
+	defer ctx.Uninit()
+	mctx := &ctx.Context
+
+	devs, err := mctx.Devices(malgo.Capture)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println("Available capture devices:")
+	for i, d := range devs {
+		note := ""
+		if d.IsDefault != 0 {
+			note = "(DEFAULT)"
+		}
+		fmt.Printf("  %d: \"%s\" %s\n  ID: %s\n", i, d.Name(), note, d.ID.String())
+	}
+	if len(devs) == 0 {
+		fmt.Println("  (none found)")
+	}
+
+	return nil
 }
 
 // Capture records incoming samples into the provided writer.

@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/pid"
 	"github.com/richiejp/VoxInput/internal/semver"
@@ -45,6 +46,7 @@ func main() {
 		fmt.Println("  stop   - Alias for write; makes more sense in realtime mode")
 		fmt.Println("  toggle - Toggle recording on/off (start recording if idle, stop if recording)")
 		fmt.Println("  status - Show whether the server is listening and if it's currently recording")
+		fmt.Println("  devices - List capture devices")
 		fmt.Println("  help   - Show this help message")
 		fmt.Println("  ver    - Print version")
 		return
@@ -72,7 +74,8 @@ func main() {
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
-
+		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
+		
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
 			log.Println("main: failed to parse timeout", err)
@@ -103,7 +106,17 @@ func main() {
 			ui := gui.New(ctx, showStatus)
 
 			go func() {
-				listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model, timeout, ui)
+				listen(ListenConfig{
+					PIDPath: pidPath,
+					APIKey: apiKey,
+					HTTPAPIBase: httpApiBase,
+					WSAPIBase: wsApiBase,
+					Lang: lang,
+					Model: model,
+					Timeout: timeout,
+					UI: ui,
+					CaptureDevice: captureDeviceName,
+				})
 				cancel()
 			}()
 
@@ -164,6 +177,13 @@ func main() {
 			log.Println("main: Currently idle, sending record signal")
 			err = proc.Signal(syscall.SIGUSR1)
 		}
+	case "devices":
+		err := audio.ListCaptureDevices()
+		if err != nil {
+			log.Fatalln("Failed to enumerate devices:", err)
+		}
+
+		return
 	default:
 		log.Fatalln("main: Unknown command: ", os.Args[1])
 	}

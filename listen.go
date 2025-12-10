@@ -113,8 +113,19 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 	}
 }
 
-// TODO: Reimplment replay
-func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout time.Duration, ui *gui.GUI) {
+type ListenConfig struct {
+	PIDPath string
+	APIKey string
+	HTTPAPIBase string
+	WSAPIBase string
+	Lang string
+	Model string
+	Timeout time.Duration
+	UI *gui.GUI
+	CaptureDevice string
+}
+
+func listen(config ListenConfig) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -133,10 +144,22 @@ func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout
 		MalgoContext: mctx.Context,
 	}
 
-	rtConf := openairt.DefaultConfig(apiKey)
-	rtConf.BaseURL = wsApiBase
-	rtConf.APIBaseURL = httpApiBase
-	rtConf.HTTPClient = &http.Client{Timeout: timeout}
+	captureDeviceName := config.CaptureDevice
+	if captureDeviceName != "" {
+		found, err := streamConfig.SetCaptureDeviceByName(&mctx.Context, captureDeviceName)
+		if err != nil {
+			log.Fatalln("Failed to query devices:", err)
+		}
+		if !found {
+			log.Fatalf("Capture device not found: %s\nRun 'voxinput devices' to list available devices.", captureDeviceName)
+		}
+		log.Printf("Using capture device: %s", captureDeviceName)
+	}
+
+	rtConf := openairt.DefaultConfig(config.APIKey)
+	rtConf.BaseURL = config.WSAPIBase
+	rtConf.APIBaseURL = config.HTTPAPIBase
+	rtConf.HTTPClient = &http.Client{Timeout: config.Timeout}
 	rtCli := openairt.NewClientWithConfig(rtConf)
 
 	sigChan := make(chan os.Signal, 1)
@@ -149,9 +172,9 @@ func listen(pidPath, apiKey, httpApiBase, wsApiBase, lang, model string, timeout
 		log.Fatalln("main: failed to get state file path: ", err)
 	}
 
-	err = pid.Write(pidPath)
+	err = pid.Write(config.PIDPath)
 	defer func() {
-		if err := os.Remove(pidPath); err != nil {
+		if err := os.Remove(config.PIDPath); err != nil {
 			log.Println("main: failed to remove PID file: ", err)
 		}
 		if err := os.Remove(statePath); err != nil && !os.IsNotExist(err) {
@@ -181,7 +204,7 @@ Listen:
 			break
 		}
 
-		initCtx, finishInit := context.WithTimeout(ctx, timeout)
+		initCtx, finishInit := context.WithTimeout(ctx, config.Timeout)
 		errCh := make(chan error, 1)
 		conn, err := rtCli.Connect(initCtx, openairt.WithIntent())
 		if err != nil {
@@ -205,8 +228,8 @@ Listen:
 			},
 			Session: openairt.ClientTranscriptionSession{
 				InputAudioTranscription: &openairt.InputAudioTranscription{
-					Model:    model,
-					Language: lang,
+					Model:    config.Model,
+					Language: config.Lang,
 				},
 				TurnDetection: &openairt.ClientTurnDetection{
 					Type: openairt.ClientTurnDetectionTypeServerVad,
@@ -227,7 +250,7 @@ Listen:
 			log.Println("main: failed to write recording state: ", err)
 		}
 
-		ui.Chan <- &gui.ShowListeningMsg{}
+		config.UI.Chan <- &gui.ShowListeningMsg{}
 
 		audioChunks := make(chan (*bytes.Buffer), 10)
 		chunkWriter := newChunkWriter(ctx, audioChunks)
@@ -304,9 +327,9 @@ Listen:
 				var text string
 				switch msg.ServerEventType() {
 				case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
-					ui.Chan <- &gui.ShowSpeechDetectedMsg{}
+					config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
 				case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
-					ui.Chan <- &gui.ShowTranscribingMsg{}
+					config.UI.Chan <- &gui.ShowTranscribingMsg{}
 				case openairt.ServerEventTypeResponseAudioTranscriptDone:
 					text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
 				case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
@@ -322,7 +345,7 @@ Listen:
 					continue
 				}
 
-				ui.Chan <- &gui.HideMsg{}
+				config.UI.Chan <- &gui.HideMsg{}
 
 				log.Println("main: received transcribed text: ", text)
 
@@ -385,7 +408,7 @@ Listen:
 			break
 		}
 
-		ui.Chan <- &gui.ShowStoppingMsg{}
+		config.UI.Chan <- &gui.ShowStoppingMsg{}
 		log.Println("main: finished transcribing")
 		conn.Close()
 		cancel()
