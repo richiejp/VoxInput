@@ -124,6 +124,7 @@ type ListenConfig struct {
 	UI            *gui.GUI
 	CaptureDevice string
 	OutputFile    string
+	Prompt        string
 }
 
 func listen(config ListenConfig) {
@@ -231,6 +232,7 @@ Listen:
 				InputAudioTranscription: &openairt.InputAudioTranscription{
 					Model:    config.Model,
 					Language: config.Lang,
+					Prompt:   config.Prompt,
 				},
 				TurnDetection: &openairt.ClientTurnDetection{
 					Type: openairt.ClientTurnDetectionTypeServerVad,

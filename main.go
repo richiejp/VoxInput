@@ -42,6 +42,8 @@ func main() {
            --no-realtime use the HTTP API instead of the realtime API; disables VAD
            --no-show-status don't show when recording has started or stopped
            --output-file <path> Write transcribed text to file instead of keyboard
+           --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
   stop   - Alias for write; makes more sense in realtime mode
@@ -61,6 +63,7 @@ Environment variables:
   VOXINPUT_SHOW_STATUS or SHOW_STATUS - Show status notifications (yes/no, default: yes)
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
+  VOXINPUT_PROMPT - Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
 	case "ver":
@@ -88,7 +91,7 @@ Environment variables:
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
-
+		prompt := getPrefixedEnv([]string{"VOXINPUT"}, "PROMPT", "")
 		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
 
 		timeout, err := time.ParseDuration(timeoutStr)
@@ -128,6 +131,18 @@ Environment variables:
 			outputFile = outputFileArg
 		}
 
+		var promptArg string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--prompt" && i+1 < len(os.Args) {
+				promptArg = os.Args[i+1]
+				break
+			}
+		}
+		if promptArg != "" {
+			prompt = promptArg
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
@@ -144,6 +159,7 @@ Environment variables:
 					UI:            ui,
 					CaptureDevice: captureDeviceName,
 					OutputFile:    outputFile,
+					Prompt:        prompt,
 				})
 				cancel()
 			}()
