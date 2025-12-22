@@ -22,20 +22,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 ## Requirements
 
 - `dotool` (for simulating keyboard input)
-- `OPENAI_API_KEY` or `VOXINPUT_API_KEY`: Your OpenAI API key for Whisper transcription. If you have a local instance with no key, then just leave it unset.
-- `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
-- `XDG_RUNTIME_DIR`: Required for PID and state files in `$XDG_RUNTIME_DIR`.
-- `VOXINPUT_LANG`: Language code for transcription (defaults to empty).
-- `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
-- `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
-- `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
-- `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
-- `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
-
-**Note**: `VOXINPUT_` vars take precedence over `OPENAI_` vars.
-Unless you don't mind running VoxInput as root, then you also need to ensure the following is setup for `dotool`
-
-- Your user is in the `input` user group
+- The user that runs VoxInput daemon is in the `input` user group
 - You have the following udev rule
 
 ```
@@ -75,10 +62,18 @@ Alternatively you can use the Nix flake.
 
 ## Usage
 
-The `LANG` and `VOXINPUT_LANG` environment variables are used to tell the transcription service which language to use.
-For multi-lingual use set `VOXINPUT_LANG` to an empty string.
+**Note**: `VOXINPUT_` vars take precedence vars with other prefixes.
+Unless you don't mind running VoxInput as root, then you also need to ensure the following is setup for `dotool`
 
-The pop-up window showing when recording has begun can be disabled by setting `VOXINPUT_SHOW_STATUS=no` or `--no-show-status`.
+- `OPENAI_API_KEY` or `VOXINPUT_API_KEY`: Your OpenAI API key for Whisper transcription. If you have a local instance with no key, then just leave it unset.
+- `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
+- `VOXINPUT_LANG` or `LANG`: Language code for transcription (defaults to empty).
+- `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
+- `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
+- `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
+- `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
+- `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
+- `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
 
 ### Commands
 
@@ -87,6 +82,8 @@ The pop-up window showing when recording has begun can be disabled by setting `V
   - `--no-realtime`: Use the HTTP API instead of the realtime API; disables VAD.
   - `--no-show-status`: Don't show when recording has started or stopped.
   - `--output-file <path>`: Save transcript to file instead of typing.
+  - `--prompt <text>`: Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+
   ```bash
   ./voxinput listen
   ```
@@ -246,7 +243,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - [malgo](https://github.com/gen2brain/malgo) for audio handling.
 - [go-openai](https://github.com/sashabaranov/go-openai) for OpenAI API integration.
 - [numen](https://git.sr.ht/~geb/numen) and dotool, I did consider modifying numen to use LocalAI, but decided to go with a new tool for now.
-
----
-
-Feel free to contribute or report issues! 😊
