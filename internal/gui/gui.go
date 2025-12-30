@@ -20,14 +20,17 @@ type Msg interface {
 type ShowListeningMsg struct{}
 type ShowSpeechDetectedMsg struct{}
 type ShowTranscribingMsg struct{}
+type ShowGeneratingResponseMsg struct{}
 type HideMsg struct{}
 type ShowStoppingMsg struct{}
 
 func (m *ShowListeningMsg) IsMsg() bool      { return true }
 func (m *ShowSpeechDetectedMsg) IsMsg() bool { return true }
 func (m *ShowTranscribingMsg) IsMsg() bool   { return true }
-func (m *HideMsg) IsMsg() bool               { return true }
-func (m *ShowStoppingMsg) IsMsg() bool       { return true }
+
+func (m *ShowGeneratingResponseMsg) IsMsg() bool { return true }
+func (m *HideMsg) IsMsg() bool                   { return true }
+func (m *ShowStoppingMsg) IsMsg() bool           { return true }
 
 type GUI struct {
 	a           fyne.App
@@ -76,6 +79,10 @@ func New(ctx context.Context, showStatus string) *GUI {
 					case *ShowTranscribingMsg:
 						if showStatus != "" {
 							ui.showStatus("Transcribing...", theme.FileTextIcon())
+						}
+					case *ShowGeneratingResponseMsg:
+						if showStatus != "" {
+							ui.showStatus("Generating response...", theme.FileAudioIcon())
 						}
 					case *HideMsg:
 						if ui.cancelTimer != nil {

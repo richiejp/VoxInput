@@ -43,6 +43,7 @@ func main() {
            --no-show-status don't show when recording has started or stopped
            --output-file <path> Write transcribed text to file instead of keyboard
            --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+           --mode <transcription|assistant> (realtime only, default: transcription)
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -59,11 +60,14 @@ Environment variables:
   VOXINPUT_WS_BASE_URL or OPENAI_WS_BASE_URL - WebSocket API base URL (default: ws://localhost:8080/v1/realtime)
   VOXINPUT_LANG or LANG - Language code for transcription (default: none)
   VOXINPUT_TRANSCRIPTION_MODEL or TRANSCRIPTION_MODEL - Transcription model (default: whisper-1)
+  VOXINPUT_ASSISTANT_MODEL or ASSISTANT_MODEL - Assistant model (default: none)
+  VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: alloy)
   VOXINPUT_TRANSCRIPTION_TIMEOUT or TRANSCRIPTION_TIMEOUT - Transcription timeout (default: 30s)
   VOXINPUT_SHOW_STATUS or SHOW_STATUS - Show status notifications (yes/no, default: yes)
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
   VOXINPUT_PROMPT - Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+  VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
 	case "ver":
@@ -88,11 +92,15 @@ Environment variables:
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
+		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "")
+		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
 		prompt := getPrefixedEnv([]string{"VOXINPUT"}, "PROMPT", "")
 		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
+
+		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -143,23 +151,38 @@ Environment variables:
 			prompt = promptArg
 		}
 
+		var modeArg string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--mode" && i+1 < len(os.Args) {
+				modeArg = os.Args[i+1]
+				break
+			}
+		}
+		if modeArg != "" {
+			mode = modeArg
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:       pidPath,
-					APIKey:        apiKey,
-					HTTPAPIBase:   httpApiBase,
-					WSAPIBase:     wsApiBase,
-					Lang:          lang,
-					Model:         model,
-					Timeout:       timeout,
-					UI:            ui,
-					CaptureDevice: captureDeviceName,
-					OutputFile:    outputFile,
-					Prompt:        prompt,
+					PIDPath:        pidPath,
+					APIKey:         apiKey,
+					HTTPAPIBase:    httpApiBase,
+					WSAPIBase:      wsApiBase,
+					Lang:           lang,
+					Model:          model,
+					Timeout:        timeout,
+					UI:             ui,
+					CaptureDevice:  captureDeviceName,
+					OutputFile:     outputFile,
+					Prompt:         prompt,
+					Mode:           mode,
+					AssistantModel: assistantModel,
+					AssistantVoice: assistantVoice,
 				})
 				cancel()
 			}()
