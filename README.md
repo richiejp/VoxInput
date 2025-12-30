@@ -69,11 +69,16 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
 - `VOXINPUT_LANG` or `LANG`: Language code for transcription (defaults to empty).
 - `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
+- `VOXINPUT_ASSISTANT_MODEL`: Assistant model (default: `none`).
+- `VOXINPUT_ASSISTANT_VOICE`: Assistant voice (default: `alloy`).
 - `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
 - `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
 - `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
+- `VOXINPUT_MODE`: Realtime mode (transcription|assistant, default: transcription).
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
+
+**Warning**: Assistant mode is WIP and you may need a particular version of LocalAI's realtime API to run it because I am developing both in lockstep. Eventually though it should be compatible with at least OpenAI or LocalAI.
 
 ### Commands
 
@@ -83,6 +88,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--no-show-status`: Don't show when recording has started or stopped.
   - `--output-file <path>`: Save transcript to file instead of typing.
   - `--prompt <text>`: Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+  - `--mode <transcription|assistant>`: Realtime mode (default: transcription)
 
   ```bash
   ./voxinput listen
@@ -226,7 +232,10 @@ The realtime mode has a UI to display various actions being taken by VoxInput. H
 - [x] GUI and system tray
 - [x] Voice detection and activation (partial, see below)
 - [ ] Code words to start and stop transcription
-- [ ] Allow user to describe a button they want to press (requires submitting screen shot and transcription to LocalAGI)
+- [ ] Assistant mode
+   - [x] Voice conversations with an LLM
+   - [ ] Submit desktop images to a VLM to allow it to click on items
+   - [ ] Use tool calls or MCP to allow the VLM/LLM to perform actions
 
 ## Signals
 

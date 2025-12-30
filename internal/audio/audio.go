@@ -17,7 +17,6 @@ type StreamConfig struct {
 	Format          malgo.FormatType
 	Channels        int
 	SampleRate      int
-	DeviceType      malgo.DeviceType
 	MalgoContext    malgo.Context
 	CaptureDeviceID *malgo.DeviceID
 }
@@ -35,10 +34,7 @@ func (config StreamConfig) asDeviceConfig(deviceType malgo.DeviceType) malgo.Dev
 	if config.SampleRate != 0 {
 		deviceConfig.SampleRate = uint32(config.SampleRate)
 	}
-	if config.DeviceType != 0 {
-		deviceConfig.DeviceType = config.DeviceType
-	}
-	if config.CaptureDeviceID != nil {
+	if config.CaptureDeviceID != nil && (deviceType == malgo.Capture || deviceType == malgo.Duplex) {
 		deviceConfig.Capture.DeviceID = config.CaptureDeviceID.Pointer()
 	}
 	return deviceConfig
@@ -64,8 +60,8 @@ func (c *StreamConfig) SetCaptureDeviceByName(mctx *malgo.Context, name string) 
 	return false, nil
 }
 
-func stream(ctx context.Context, abortChan chan error, config StreamConfig, deviceCallbacks malgo.DeviceCallbacks) error {
-	deviceConfig := config.asDeviceConfig(malgo.Capture)
+func stream(ctx context.Context, abortChan chan error, config StreamConfig, deviceType malgo.DeviceType, deviceCallbacks malgo.DeviceCallbacks) error {
+	deviceConfig := config.asDeviceConfig(deviceType)
 	device, err := malgo.InitDevice(config.MalgoContext, deviceConfig, deviceCallbacks)
 	if err != nil {
 		return err
@@ -121,12 +117,10 @@ func ListCaptureDevices() error {
 }
 
 // Capture records incoming samples into the provided writer.
-// The function initializes a capture device in the default context using
-// provide stream configuration.
-// Capturing will commence writing the samples to the writer until either the
-// writer returns an error, or the context signals done.
+// The function initializes a capture device in the default context using the
+// provided stream configuration.
+// XXX: Capture, Duplex and Playback are mutually exclusive, only use one at a time
 func Capture(ctx context.Context, w io.Writer, config StreamConfig) error {
-	config.DeviceType = malgo.Capture
 	abortChan := make(chan error)
 	defer close(abortChan)
 	aborted := false
@@ -137,47 +131,102 @@ func Capture(ctx context.Context, w io.Writer, config StreamConfig) error {
 				return
 			}
 
-			_, err := w.Write(inputSamples)
-			if err != nil {
-				aborted = true
-				abortChan <- err
-			}
-		},
-	}
-
-	return stream(ctx, abortChan, config, deviceCallbacks)
-}
-
-// Playback streams samples from a reader to the sound device.
-// The function initializes a playback device in the default context using
-// provide stream configuration.
-// Playback will commence playing the samples provided from the reader until either the
-// reader returns an error, or the context signals done.
-func Playback(ctx context.Context, r io.Reader, config StreamConfig) error {
-	config.DeviceType = malgo.Playback
-	abortChan := make(chan error)
-	defer close(abortChan)
-	aborted := false
-
-	deviceCallbacks := malgo.DeviceCallbacks{
-		Data: func(outputSamples, inputSamples []byte, frameCount uint32) {
-			if aborted {
-				return
-			}
-			if frameCount == 0 {
-				return
-			}
-
-			read, err := io.ReadFull(r, outputSamples)
-			if read <= 0 {
+			if len(inputSamples) > 0 {
+				_, err := w.Write(inputSamples)
 				if err != nil {
 					aborted = true
 					abortChan <- err
 				}
-				return
 			}
 		},
 	}
 
-	return stream(ctx, abortChan, config, deviceCallbacks)
+	return stream(ctx, abortChan, config, malgo.Capture, deviceCallbacks)
+}
+
+// Duplex streams audio from a reader to the playback device and captures audio
+// from the capture device to a writer.
+// It initializes a duplex device in the default context using the provided stream configuration.
+// It expects both r and w to be non-nil.
+// XXX: Capture, Duplex and Playback are mutually exclusive, only use one at a time
+func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig) error {
+	abortChan := make(chan error)
+	defer close(abortChan)
+	aborted := false
+
+	deviceCallbacks := malgo.DeviceCallbacks{
+		Data: func(outputSamples, inputSamples []byte, frameCount uint32) {
+			if aborted {
+				return
+			}
+
+			if len(inputSamples) > 0 {
+				_, err := w.Write(inputSamples)
+				if err != nil {
+					aborted = true
+					abortChan <- err
+					return
+				}
+			}
+
+			if len(outputSamples) > 0 {
+				if frameCount == 0 {
+					return
+				}
+
+				read, err := r.Read(outputSamples)
+				if err != nil {
+					if err == io.EOF {
+						for i := read; i < len(outputSamples); i++ {
+							outputSamples[i] = 0
+						}
+						aborted = true
+						abortChan <- io.EOF
+						return
+					}
+					aborted = true
+					abortChan <- err
+					return
+				}
+			}
+		},
+	}
+
+	return stream(ctx, abortChan, config, malgo.Duplex, deviceCallbacks)
+}
+
+// Playback streams samples from the provided reader to the playback device.
+// The function initializes a playback device in the default context using the
+// provided stream configuration.
+// XXX: Capture, Duplex and Playback are mutually exclusive, only use one at a time
+func Playback(ctx context.Context, r io.Reader, config StreamConfig) error {
+	abortChan := make(chan error)
+	defer close(abortChan)
+	aborted := false
+
+	deviceCallbacks := malgo.DeviceCallbacks{
+		Data: func(outputSamples, inputSamples []byte, frameCount uint32) {
+			if aborted {
+				return
+			}
+
+			if len(outputSamples) > 0 {
+				if frameCount == 0 {
+					return
+				}
+
+				read, err := r.Read(outputSamples)
+				if err != nil {
+					aborted = true
+					abortChan <- err
+					return
+				}
+				for i := read; i < len(outputSamples); i++ {
+					outputSamples[i] = 0
+				}
+			}
+		},
+	}
+
+	return stream(ctx, abortChan, config, malgo.Playback, deviceCallbacks)
 }

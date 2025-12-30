@@ -98,7 +98,8 @@ Listen:
 		errCh := make(chan error, 1)
 
 		go func() {
-			if err := audio.Capture(ctx, &buf, streamConfig); err != nil {
+			err := audio.Capture(ctx, &buf, streamConfig)
+			if err != nil {
 				errCh <- fmt.Errorf("audio capture: %w", err)
 			}
 		}()
