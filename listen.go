@@ -125,9 +125,13 @@ type ListenConfig struct {
 	CaptureDevice string
 	OutputFile    string
 	Prompt        string
+	Mode          string
 }
 
 func listen(config ListenConfig) {
+	if config.Mode == "assistant" {
+		log.Fatal("assistant mode not implemented")
+	}
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
