@@ -73,6 +73,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
 - `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
+- `VOXINPUT_MODE`: Realtime mode (transcription|assistant, default: transcription).
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
 
 ### Commands
@@ -83,6 +84,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--no-show-status`: Don't show when recording has started or stopped.
   - `--output-file <path>`: Save transcript to file instead of typing.
   - `--prompt <text>`: Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+  - `--mode <transcription|assistant>`: Realtime mode (default: transcription)
 
   ```bash
   ./voxinput listen

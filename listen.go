@@ -125,6 +125,7 @@ type ListenConfig struct {
 	CaptureDevice string
 	OutputFile    string
 	Prompt        string
+	Mode          string
 }
 
 func listen(config ListenConfig) {
@@ -224,21 +225,39 @@ Listen:
 			break Listen
 		}
 
-		err = conn.SendMessage(initCtx, openairt.TranscriptionSessionUpdateEvent{
-			EventBase: openairt.EventBase{
-				EventID: "Initial update",
-			},
-			Session: openairt.ClientTranscriptionSession{
-				InputAudioTranscription: &openairt.InputAudioTranscription{
-					Model:    config.Model,
-					Language: config.Lang,
-					Prompt:   config.Prompt,
+		if config.Mode == "assistant" {
+			err = conn.SendMessage(initCtx, openairt.SessionUpdateEvent{
+				EventBase: openairt.EventBase{
+					EventID: "Initial update",
 				},
-				TurnDetection: &openairt.ClientTurnDetection{
-					Type: openairt.ClientTurnDetectionTypeServerVad,
+				Session: openairt.ClientSession{
+					Modalities:        []openairt.Modality{"text", "audio"},
+					Instructions:      config.Prompt,
+					Voice:             openairt.VoiceAlloy,
+					InputAudioFormat:  openairt.AudioFormatPcm16,
+					OutputAudioFormat: openairt.AudioFormatPcm16,
+					TurnDetection: &openairt.ClientTurnDetection{
+						Type: openairt.ClientTurnDetectionTypeServerVad,
+					},
 				},
-			},
-		})
+			})
+		} else {
+			err = conn.SendMessage(initCtx, openairt.TranscriptionSessionUpdateEvent{
+				EventBase: openairt.EventBase{
+					EventID: "Initial update",
+				},
+				Session: openairt.ClientTranscriptionSession{
+					InputAudioTranscription: &openairt.InputAudioTranscription{
+						Model:    config.Model,
+						Language: config.Lang,
+						Prompt:   config.Prompt,
+					},
+					TurnDetection: &openairt.ClientTurnDetection{
+						Type: openairt.ClientTurnDetectionTypeServerVad,
+					},
+				},
+			})
+		}
 
 		if err := waitForSessionUpdated(initCtx, conn); err != nil {
 			finishInit()
@@ -448,3 +467,4 @@ Listen:
 		}
 	}
 }
+

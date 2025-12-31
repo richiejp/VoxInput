@@ -43,6 +43,7 @@ func main() {
            --no-show-status don't show when recording has started or stopped
            --output-file <path> Write transcribed text to file instead of keyboard
            --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+           --mode <transcription|assistant> (realtime only, default: transcription)
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -64,6 +65,7 @@ Environment variables:
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
   VOXINPUT_PROMPT - Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+  VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
 	case "ver":
@@ -93,6 +95,8 @@ Environment variables:
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
 		prompt := getPrefixedEnv([]string{"VOXINPUT"}, "PROMPT", "")
 		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
+
+		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -143,6 +147,18 @@ Environment variables:
 			prompt = promptArg
 		}
 
+		var modeArg string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--mode" && i+1 < len(os.Args) {
+				modeArg = os.Args[i+1]
+				break
+			}
+		}
+		if modeArg != "" {
+			mode = modeArg
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
@@ -160,6 +176,7 @@ Environment variables:
 					CaptureDevice: captureDeviceName,
 					OutputFile:    outputFile,
 					Prompt:        prompt,
+					Mode:          mode,
 				})
 				cancel()
 			}()
