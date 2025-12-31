@@ -4,12 +4,10 @@ go 1.24.2
 
 require (
 	fyne.io/fyne/v2 v2.7.1
-	github.com/WqyJh/go-openai-realtime v0.6.0
+	github.com/WqyJh/go-openai-realtime v0.6.1
 	github.com/gen2brain/malgo v0.11.24
 	github.com/sashabaranov/go-openai v1.41.2
 )
-
-replace github.com/WqyJh/go-openai-realtime v0.6.0 => github.com/richiejp/go-openai-realtime v0.6.1-fix-created-event
 
 require (
 	fyne.io/systray v1.11.1-0.20250603113521-ca66a66d8b58 // indirect
