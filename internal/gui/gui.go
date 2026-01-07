@@ -2,15 +2,10 @@ package gui
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
-	"fyne.io/fyne/v2/widget"
 )
 
 type Msg interface {
@@ -33,34 +28,56 @@ func (m *HideMsg) IsMsg() bool                   { return true }
 func (m *ShowStoppingMsg) IsMsg() bool           { return true }
 
 type GUI struct {
-	a           fyne.App
-	w           fyne.Window
-	Chan        chan Msg
-	cancelTimer context.CancelFunc
-	timerCtx    context.Context
-	statusLabel *widget.Label
-	statusIcon  *widget.Icon
-	countDown   *widget.ProgressBar
+	a                fyne.App
+	Chan             chan Msg
+	ListenIcon       fyne.Resource
+	DetectedIcon     fyne.Resource
+	TranscribingIcon fyne.Resource
+	StopIcon         fyne.Resource
 }
 
 // TODO:: The App Icon does not work in the sys tray: https://github.com/fyne-io/fyne/issues/3968
-func makeTray(a fyne.App) {
-	if desk, ok := a.(desktop.App); ok {
+func makeTray(ui GUI) {
+	if desk, ok := ui.a.(desktop.App); ok {
 		menu := fyne.NewMenu("VoxInput")
 		desk.SetSystemTrayMenu(menu)
+		desk.SetSystemTrayIcon(ui.TranscribingIcon)
 	}
 }
 
 func New(ctx context.Context, showStatus string) *GUI {
 	a := app.NewWithID("voxinput")
-	a.SetIcon(theme.MediaRecordIcon())
 
 	ui := GUI{
 		a:    a,
 		Chan: make(chan Msg),
 	}
 
-	makeTray(a)
+	// Load icons
+	if ListenIcon, err := fyne.LoadResourceFromPath("icons/microphone.png"); err != nil {
+		panic(err)
+	} else {
+		ui.ListenIcon = ListenIcon
+	}
+	if DetectedIcon, err := fyne.LoadResourceFromPath("icons/play.png"); err != nil {
+		panic(err)
+	} else {
+		ui.DetectedIcon = DetectedIcon
+	}
+	if TranscribingIcon, err := fyne.LoadResourceFromPath("icons/voice-note.png"); err != nil {
+		panic(err)
+	} else {
+		ui.TranscribingIcon = TranscribingIcon
+	}
+	if StopIcon, err := fyne.LoadResourceFromPath("icons/pause.png"); err != nil {
+		panic(err)
+	} else {
+		ui.StopIcon = StopIcon
+	}
+
+	a.SetIcon(ui.TranscribingIcon)
+
+	makeTray(ui)
 
 	go func() {
 		for {
@@ -70,30 +87,23 @@ func New(ctx context.Context, showStatus string) *GUI {
 					switch msg.(type) {
 					case *ShowListeningMsg:
 						if showStatus != "" {
-							ui.showStatus("Listening with voice audio detection...", theme.MediaRecordIcon())
+							ui.showStatus("Listening with voice audio detection...", ui.ListenIcon)
 						}
 					case *ShowSpeechDetectedMsg:
 						if showStatus != "" {
-							ui.showStatus("Detected speech...", theme.MediaMusicIcon())
+							ui.showStatus("Detected speech...", ui.DetectedIcon)
 						}
 					case *ShowTranscribingMsg:
 						if showStatus != "" {
-							ui.showStatus("Transcribing...", theme.FileTextIcon())
+							ui.showStatus("Transcribing...", ui.TranscribingIcon)
 						}
 					case *ShowGeneratingResponseMsg:
 						if showStatus != "" {
-							ui.showStatus("Generating response...", theme.FileAudioIcon())
-						}
-					case *HideMsg:
-						if ui.cancelTimer != nil {
-							ui.cancelTimer()
-						}
-						if ui.w != nil {
-							ui.w.Hide()
+							ui.showStatus("Generating response...", ui.DetectedIcon)
 						}
 					case *ShowStoppingMsg:
 						if showStatus != "" {
-							ui.showStatus("Stopping listening", theme.MediaStopIcon())
+							ui.showStatus("Stopping listening", ui.StopIcon)
 						}
 					}
 				})
@@ -114,72 +124,15 @@ func (g *GUI) Run() {
 }
 
 func (g *GUI) showStatus(statusText string, icon fyne.Resource) {
-	if g.cancelTimer != nil {
-		g.cancelTimer()
+	if desk, ok := g.a.(desktop.App); ok {
+		m := fyne.NewMenu("VoxInput",
+			fyne.NewMenuItem(statusText, nil),
+			fyne.NewMenuItemSeparator(),
+			fyne.NewMenuItem("Quit", func() {
+				g.a.Quit()
+			}),
+		)
+		desk.SetSystemTrayIcon(icon)
+		desk.SetSystemTrayMenu(m)
 	}
-
-	if g.w == nil {
-		g.w = g.a.NewWindow("VoxInput")
-		g.w.SetFixedSize(true)
-		g.w.Resize(fyne.NewSize(300, 150))
-
-		g.statusLabel = widget.NewLabel(statusText)
-		g.statusIcon = widget.NewIcon(icon)
-		g.statusIcon.Resize(fyne.NewSize(100, 100))
-
-		g.countDown = widget.NewProgressBar()
-		g.countDown.TextFormatter = func() string {
-			return ""
-		}
-
-		g.w.SetContent(container.NewGridWithColumns(1,
-			g.statusLabel,
-			g.statusIcon,
-			g.countDown,
-		))
-	} else {
-		g.statusLabel.SetText(statusText)
-		g.statusIcon.SetResource(icon)
-	}
-
-	var ticks time.Duration
-	tickTime := time.Millisecond * 50
-	closeTimeout := 1500 * time.Millisecond
-
-	g.countDown.TextFormatter = func() string {
-		return fmt.Sprintf("Closing in %.2fs", closeTimeout.Seconds()-ticks.Seconds())
-	}
-	g.countDown.SetValue(0)
-	g.countDown.Refresh()
-
-	g.timerCtx, g.cancelTimer = context.WithCancel(context.Background())
-	timerCtx := g.timerCtx
-
-	go func() {
-		ticker := time.NewTicker(tickTime)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-timerCtx.Done():
-				return
-			case <-ticker.C:
-				ticks += tickTime
-
-				fyne.Do(func() {
-					g.countDown.SetValue(float64(ticks) / float64(closeTimeout))
-
-					if ticks > closeTimeout {
-						g.w.Hide()
-					}
-				})
-
-				if ticks > closeTimeout {
-					return
-				}
-			}
-		}
-	}()
-
-	g.w.Show()
 }

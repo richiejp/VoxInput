@@ -1,102 +1,160 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	openairt "github.com/WqyJh/go-openai-realtime"
 	"github.com/gen2brain/malgo"
+	sherpa "github.com/k2-fsa/sherpa-onnx-go-linux"
+	resampling "github.com/tphakala/go-audio-resampler"
 
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
+const (
+	CAPTURE_RATE   = 24000           // Input sample rate from microphone
+	MODEL_RATE     = 16000           // Sample rate required by Sherpa model
+	CAPTURE_FORMAT = malgo.FormatS16 // Audio capture format
+)
+
 type chunkWriter struct {
-	ctx      context.Context
-	ready    chan<- (*bytes.Buffer)
-	current  *bytes.Buffer
-	lastSend time.Time
+	ctx    context.Context
+	ready  chan<- []float32
+	format malgo.FormatType
 }
 
-func newChunkWriter(ctx context.Context, ready chan<- (*bytes.Buffer)) *chunkWriter {
+func newChunkWriter(ctx context.Context, ready chan<- []float32, format malgo.FormatType) *chunkWriter {
 	return &chunkWriter{
-		ctx:      ctx,
-		ready:    ready,
-		current:  new(bytes.Buffer),
-		lastSend: time.Now(),
-	}
-}
-
-func (rbw *chunkWriter) Write(p []byte) (n int, err error) {
-	now := time.Now()
-	if now.Sub(rbw.lastSend) >= 250*time.Millisecond {
-		select {
-		case rbw.ready <- rbw.current:
-			break
-		case <-rbw.ctx.Done():
-			return 0, rbw.ctx.Err()
-		}
-		rbw.current = new(bytes.Buffer)
-		rbw.lastSend = now
-	}
-
-	return rbw.current.Write(p)
-}
-
-type chunkReader struct {
-	ctx     context.Context
-	chunks  <-chan *bytes.Buffer
-	current *bytes.Buffer
-}
-
-func newChunkReader(ctx context.Context, chunks <-chan *bytes.Buffer) *chunkReader {
-	return &chunkReader{
 		ctx:    ctx,
-		chunks: chunks,
+		ready:  ready,
+		format: format,
 	}
 }
 
-func (cr *chunkReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
+func (cw *chunkWriter) Write(p []byte) (n int, err error) {
+	samples := cw.bytesToFloat32(p)
+
+	select {
+	case cw.ready <- samples:
+		return len(p), nil
+	case <-cw.ctx.Done():
+		return 0, cw.ctx.Err()
+	default:
+		// Channel full, drop samples with warning
+		log.Println("chunkWriter: audioSamples channel full, dropping samples")
+		return len(p), nil
+	}
+}
+
+func (cw *chunkWriter) bytesToFloat32(inSamples []byte) []float32 {
+	switch cw.format {
+	case malgo.FormatS16:
+		numSamples := len(inSamples) / 2
+		outSamples := make([]float32, numSamples)
+		for i := 0; i < numSamples; i++ {
+			s16 := int16(inSamples[2*i]) | int16(inSamples[2*i+1])<<8
+			outSamples[i] = float32(s16) / 32768.0
+		}
+		return outSamples
+	default:
+		log.Printf("chunkWriter: unsupported format %v, returning empty", cw.format)
+		return []float32{}
+	}
+}
+
+type TranscriptionUpdate struct {
+	NewText    string
+	IsEndpoint bool
+}
+
+// TextUpdate represents the changes needed to transform old text to new text
+type TextUpdate struct {
+	CommonPrefixLen int
+	ToDelete        string
+	DeleteCount     int
+	ToAppend        string
+}
+
+// ComputeTextUpdate calculates the longest common prefix and determines
+// what needs to be deleted and appended
+func ComputeTextUpdate(oldText, newText string) TextUpdate {
+	// Find longest common prefix
+	lcpLen := 0
+	minLen := len(oldText)
+	if len(newText) < minLen {
+		minLen = len(newText)
 	}
 
-	n := 0
-	for len(p) > 0 {
-		if cr.current == nil || cr.current.Len() == 0 {
-			select {
-			case buf := <-cr.chunks:
-				cr.current = buf
-			default:
-				return n, nil
-			}
-		}
-		if cr.current == nil {
-			return n, nil
-		}
-
-		nn, err := cr.current.Read(p)
-		n += nn
-		p = p[nn:]
-		if err == io.EOF {
-			cr.current = nil
-			continue
-		}
-		return n, nil
+	for lcpLen < minLen && oldText[lcpLen] == newText[lcpLen] {
+		lcpLen++
 	}
-	return n, nil
+
+	// Calculate what needs to be deleted (remainder of old text)
+	toDelete := oldText[lcpLen:]
+	deleteCount := len(toDelete)
+
+	// Calculate what needs to be appended
+	toAppend := newText[lcpLen:]
+
+	return TextUpdate{
+		CommonPrefixLen: lcpLen,
+		ToDelete:        toDelete,
+		DeleteCount:     deleteCount,
+		ToAppend:        toAppend,
+	}
+}
+
+func (u TextUpdate) String() string {
+	return fmt.Sprintf("prefix_len=%d, to_delete='%s' (backspaces=%d), to_append='%s'",
+		u.CommonPrefixLen, u.ToDelete, u.DeleteCount, u.ToAppend)
+}
+
+func initRecognizer() *sherpa.OnlineRecognizer {
+	config := sherpa.OnlineRecognizerConfig{}
+	config.FeatConfig = sherpa.FeatureConfig{
+		SampleRate: MODEL_RATE,
+		FeatureDim: 80,
+	}
+
+	// Model paths - hardcoded for now
+	// TODO: Make these configurable via environment variables or flags
+	config.ModelConfig.Transducer.Encoder = "./sherpa-stt-onnx-en-kroko_128l/encoder.int8.onnx"
+	config.ModelConfig.Transducer.Decoder = "./sherpa-stt-onnx-en-kroko_128l/decoder.int8.onnx"
+	config.ModelConfig.Transducer.Joiner = "./sherpa-stt-onnx-en-kroko_128l/joiner.int8.onnx"
+	config.ModelConfig.Paraformer.Encoder = ""
+	config.ModelConfig.Paraformer.Decoder = ""
+	config.ModelConfig.Tokens = "./sherpa-stt-onnx-en-kroko_128l/tokens.txt"
+	config.ModelConfig.NumThreads = 1
+	config.ModelConfig.Debug = 0
+	config.ModelConfig.ModelType = "nemo_transducer"
+	config.ModelConfig.Provider = "cpu"
+
+	// Decoding configuration
+	config.DecodingMethod = "greedy_search" // or modified_beam_search
+	config.MaxActivePaths = 4
+
+	// Endpoint detection configuration
+	config.EnableEndpoint = 1
+	config.Rule1MinTrailingSilence = 2.4
+	config.Rule2MinTrailingSilence = 1.2
+	config.Rule3MinUtteranceLength = 20
+
+	log.Println("main: Initializing Sherpa recognizer (may take several seconds)...")
+	recognizer := sherpa.NewOnlineRecognizer(&config)
+	log.Println("main: Sherpa recognizer created!")
+
+	return recognizer
 }
 
 func getPrefixedEnv(prefixes []string, name string, fallback string) (val string) {
@@ -119,396 +177,44 @@ func getOpenaiEnv(name string, fallback string) string {
 	return getPrefixedEnv([]string{"VOXINPUT", "OPENAI"}, name, fallback)
 }
 
-func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
-	for {
-		msg, err := conn.ReadMessage(ctx)
-		if err != nil {
-			var permanent *openairt.PermanentError
-			if errors.As(err, &permanent) {
-				log.Println("waitForSessionUpdated: Connection failed: ", err)
-				return err
-			}
-			log.Println("waitForSessionUpdated: error receiving message, retrying: ", err)
-			time.Sleep(250 * time.Millisecond)
-			continue
-		}
-
-		log.Println("waitForSessionUpdated: received message of type: ", msg.ServerEventType())
-
-		switch msg.ServerEventType() {
-		case openairt.ServerEventTypeError:
-			log.Println("waitForSessionUpdated: Server error: ", msg.(openairt.ErrorEvent).Error.Message)
-		case openairt.ServerEventTypeConversationCreated:
-		case openairt.ServerEventTypeSessionCreated:
-			fallthrough
-		case openairt.ServerEventTypeTranscriptionSessionCreated:
-			fallthrough
-		case openairt.ServerEventTypeTranscriptionSessionUpdated:
-			fallthrough
-		case openairt.ServerEventTypeSessionUpdated:
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-		}
-	}
-}
-
 type ListenConfig struct {
-	PIDPath        string
-	APIKey         string
-	HTTPAPIBase    string
-	WSAPIBase      string
-	Lang           string
-	Model          string
-	Timeout        time.Duration
-	UI             *gui.GUI
-	CaptureDevice  string
-	OutputFile     string
-	Prompt         string
-	Mode           string
-	AssistantModel string
-	AssistantVoice string
+	PIDPath string
+	UI      *gui.GUI
 }
 
-type Listener struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	conn            *openairt.Conn
-	errCh           chan error
-	audioChunks     chan *bytes.Buffer
-	chunkWriter     *chunkWriter
-	config          ListenConfig
-	streamConfig    audio.StreamConfig
-	rtCli           *openairt.Client
-	statePath       string
-	audioPlayChunks chan *bytes.Buffer
-	playReader      *chunkReader
-}
-
-func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string) *Listener {
-	ctx, cancel := context.WithCancel(context.Background())
-	l := &Listener{
-		ctx:          ctx,
-		cancel:       cancel,
-		config:       config,
-		streamConfig: streamConfig,
-		rtCli:        rtCli,
-		statePath:    statePath,
-		errCh:        make(chan error, 1),
-		audioChunks:  make(chan *bytes.Buffer, 10),
-	}
-	l.chunkWriter = newChunkWriter(l.ctx, l.audioChunks)
-	l.audioPlayChunks = make(chan *bytes.Buffer, 10)
-	l.playReader = newChunkReader(l.ctx, l.audioPlayChunks)
-
-	return l
-}
-
-func (l *Listener) Start() error {
-	initCtx, finishInit := context.WithTimeout(l.ctx, l.config.Timeout)
-	opts := []openairt.ConnectOption{openairt.WithIntent()}
-	if l.config.Mode == "assistant" && l.config.AssistantModel != "" {
-		opts = append(opts, openairt.WithModel(l.config.AssistantModel))
-	}
-	conn, err := l.rtCli.Connect(initCtx, opts...)
-	if err != nil {
-		log.Println("Listener.Start: realtime connect: ", err)
-		finishInit()
-		return err
-	}
-	l.conn = conn
-	log.Println("Listener.Start: Connected to realtime API, waiting for session.created event...")
-	if err := waitForSessionUpdated(initCtx, l.conn); err != nil {
-		finishInit()
-		return err
-	}
-	if l.config.Mode == "assistant" {
-		voice := openairt.VoiceAlloy
-		if l.config.AssistantVoice != "" {
-			voice = openairt.Voice(l.config.AssistantVoice)
-		}
-		err = l.conn.SendMessage(initCtx, openairt.SessionUpdateEvent{
-			EventBase: openairt.EventBase{
-				EventID: "Initial update",
-			},
-			Session: openairt.ClientSession{
-				Modalities:        []openairt.Modality{"text", "audio"},
-				Instructions:      l.config.Prompt,
-				Voice:             voice,
-				InputAudioFormat:  openairt.AudioFormatPcm16,
-				OutputAudioFormat: openairt.AudioFormatPcm16,
-				TurnDetection: &openairt.ClientTurnDetection{
-					Type: openairt.ClientTurnDetectionTypeServerVad,
-				},
-			},
-		})
-	} else {
-		err = l.conn.SendMessage(initCtx, openairt.TranscriptionSessionUpdateEvent{
-			EventBase: openairt.EventBase{
-				EventID: "Initial update",
-			},
-			Session: openairt.ClientTranscriptionSession{
-				InputAudioTranscription: &openairt.InputAudioTranscription{
-					Model:    l.config.Model,
-					Language: l.config.Lang,
-					Prompt:   l.config.Prompt,
-				},
-				TurnDetection: &openairt.ClientTurnDetection{
-					Type: openairt.ClientTurnDetectionTypeServerVad,
-				},
-			},
-		})
-	}
-	if err != nil {
-		log.Println("Listener.Start: error sending initial update: ", err)
-		finishInit()
-		return err
-	}
-	if err := waitForSessionUpdated(initCtx, l.conn); err != nil {
-		finishInit()
-		return err
-	}
-	finishInit()
-	log.Println("Listener.Start: Record/Transcribe...")
-	if err := pid.WriteState(l.statePath, true); err != nil {
-		log.Println("Listener.Start: failed to write recording state: ", err)
-	}
-	l.config.UI.Chan <- &gui.ShowListeningMsg{}
-
-	return nil
-}
-
-func (l *Listener) RunAudio() {
-	if l.config.Mode == "assistant" {
-		if err := audio.Duplex(l.ctx, l.playReader, l.chunkWriter, l.streamConfig); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
-				return
-			}
-			l.errCh <- fmt.Errorf("audio duplex: %w", err)
-			l.cancel()
-		}
-		return
-	}
-
-	if err := audio.Capture(l.ctx, l.chunkWriter, l.streamConfig); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return
-		}
-		l.errCh <- fmt.Errorf("audio capture: %w", err)
-		l.cancel()
-	}
-}
-
-func (l *Listener) SendChunks() {
-	for {
-		var cur *bytes.Buffer
-		select {
-		case cur = <-l.audioChunks:
-		case <-l.ctx.Done():
-			return
-		}
-		log.Printf("Listener.SendChunks: transcribing, %d\n", cur.Len())
-		if cur.Len() < 1 {
-			continue
-		}
-		if err := l.conn.SendMessage(l.ctx, openairt.InputAudioBufferAppendEvent{
-			EventBase: openairt.EventBase{
-				EventID: "TODO",
-			},
-			Audio: base64.StdEncoding.EncodeToString(cur.Bytes()),
-		}); err != nil {
-			var permanent *openairt.PermanentError
-			if errors.As(err, &permanent) {
-				l.errCh <- fmt.Errorf("Listener.SendChunks: connection failed: %w", err)
-				l.cancel()
-				return
-			}
-			log.Println("Listener.SendChunks: error sending message: ", err)
-			continue
-		}
-	}
-}
-
-func (l *Listener) ReceiveTranscriptionMessages() {
-	for {
-		msg, err := l.conn.ReadMessage(l.ctx)
-		if err != nil {
-			var permanent *openairt.PermanentError
-			if errors.As(err, &permanent) {
-				log.Println("Listener.ReceiveTranscriptionMessages: Connection failed: ", err)
-				l.cancel()
-				return
-			}
-			log.Println("Listener.ReceiveTranscriptionMessages: error receiving message, retrying: ", err)
-			continue
-		}
-		log.Println("Listener.ReceiveTranscriptionMessages: receiving message: ", msg.ServerEventType())
-		var text string
-		switch msg.ServerEventType() {
-		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
-			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
-		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
-			l.config.UI.Chan <- &gui.ShowTranscribingMsg{}
-		case openairt.ServerEventTypeResponseAudioTranscriptDone:
-			text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
-		case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
-			text = msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
-		case openairt.ServerEventTypeError:
-			log.Println("Listener.ReceiveTranscriptionMessages: server error: ", msg.(openairt.ErrorEvent).Error.Message)
-			continue
-		default:
-			continue
-		}
-		if text == "" {
-			continue
-		}
-		l.config.UI.Chan <- &gui.HideMsg{}
-		log.Println("Listener.ReceiveTranscriptionMessages: received transcribed text: ", text)
-		if l.config.OutputFile != "" {
-			f, err := os.OpenFile(l.config.OutputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				log.Printf("Failed to open output file %s: %v\n", l.config.OutputFile, err)
-				continue
-			}
-			if _, err := fmt.Fprintln(f, text); err != nil {
-				log.Printf("Failed to write to output file: %v\n", err)
-			}
-			if err := f.Close(); err != nil {
-				log.Printf("Failed to close output file: %v\n", err)
-			}
-			continue
-		}
-		dotool := exec.CommandContext(l.ctx, "dotool")
-		stdin, err := dotool.StdinPipe()
-		if err != nil {
-			l.errCh <- fmt.Errorf("dotool stdin pipe: %w", err)
-			l.cancel()
-			return
-		}
-		dotool.Stderr = os.Stderr
-		if err := dotool.Start(); err != nil {
-			l.errCh <- fmt.Errorf("dotool start: %w", err)
-			l.cancel()
-			return
-		}
-		_, err = io.WriteString(stdin, fmt.Sprintf("type %s ", text))
-		if err != nil {
-			l.errCh <- fmt.Errorf("dotool stdin WriteString: %w", err)
-			l.cancel()
-			return
-		}
-		if err := stdin.Close(); err != nil {
-			l.errCh <- fmt.Errorf("close dotool stdin: %w", err)
-			l.cancel()
-			return
-		}
-		if err := dotool.Wait(); err != nil {
-			if errors.Is(err, context.Canceled) {
-				return
-			}
-			l.errCh <- fmt.Errorf("dotool wait: %w", err)
-			l.cancel()
-			return
-		}
-	}
-}
-
-func (l *Listener) ReceiveAssistantMessages() {
-	for {
-		msg, err := l.conn.ReadMessage(l.ctx)
-		if err != nil {
-			var permanent *openairt.PermanentError
-			if errors.As(err, &permanent) {
-				log.Println("Listener.ReceiveAssistantMessages: Connection failed: ", err)
-				l.cancel()
-				return
-			}
-			log.Println("Listener.ReceiveAssistantMessages: error receiving message, retrying: ", err)
-			continue
-		}
-		log.Println("Listener.ReceiveAssistantMessages: receiving message: ", msg.ServerEventType())
-		switch msg.ServerEventType() {
-		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
-			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
-		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
-			l.config.UI.Chan <- &gui.ShowGeneratingResponseMsg{}
-		case openairt.ServerEventTypeResponseAudioDelta:
-			delta := msg.(openairt.ResponseAudioDeltaEvent)
-			b, err := base64.StdEncoding.DecodeString(delta.Delta)
-			if err != nil {
-				log.Println("Listener.ReceiveAssistantMessages: error decoding audio delta: ", err)
-				continue
-			}
-			select {
-			case l.audioPlayChunks <- bytes.NewBuffer(b):
-			default:
-				log.Println("Listener.ReceiveAssistantMessages: dropped audio chunk")
-			}
-		case openairt.ServerEventTypeError:
-			log.Println("Listener.ReceiveAssistantMessages: server error: ", msg.(openairt.ErrorEvent).Error.Message)
-			continue
-		default:
-			continue
-		}
-
-	}
-}
-
-func (l *Listener) Stop() {
-	log.Println("Listener.Stop: finished transcribing")
-	l.conn.Close()
-	l.cancel()
-	if err := pid.WriteState(l.statePath, false); err != nil {
-		log.Println("Listener.Stop: failed to write idle state: ", err)
-	}
-}
-
+// TODO: Reimplment replay
 func listen(config ListenConfig) {
+	// Initialize malgo context
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
 	if err != nil {
-		log.Fatalln("listen: ", err)
+		log.Fatalln("main: failed to initialize malgo context: ", err)
 	}
 	defer func() {
 		_ = mctx.Uninit()
 		mctx.Free()
 	}()
 
+	// Initialize Sherpa recognizer once at startup
+	recognizer := initRecognizer()
+	defer sherpa.DeleteOnlineRecognizer(recognizer)
+
+	// Stream configuration - uses CAPTURE_RATE and CAPTURE_FORMAT
 	streamConfig := audio.StreamConfig{
-		Format:       malgo.FormatS16,
+		Format:       CAPTURE_FORMAT,
 		Channels:     1,
-		SampleRate:   24000,
+		SampleRate:   CAPTURE_RATE,
 		MalgoContext: mctx.Context,
 	}
 
-	captureDeviceName := config.CaptureDevice
-	if captureDeviceName != "" {
-		found, err := streamConfig.SetCaptureDeviceByName(&mctx.Context, captureDeviceName)
-		if err != nil {
-			log.Fatalln("Failed to query devices:", err)
-		}
-		if !found {
-			log.Fatalf("Capture device not found: %s\nRun 'voxinput devices' to list available devices.", captureDeviceName)
-		}
-		log.Printf("Using capture device: %s", captureDeviceName)
-	}
-
-	rtConf := openairt.DefaultConfig(config.APIKey)
-	rtConf.BaseURL = config.WSAPIBase
-	rtConf.APIBaseURL = config.HTTPAPIBase
-	rtConf.HTTPClient = &http.Client{Timeout: config.Timeout}
-	rtCli := openairt.NewClientWithConfig(rtConf)
-
+	// Signal handling setup
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGUSR1)
 	signal.Notify(sigChan, syscall.SIGUSR2)
 	signal.Notify(sigChan, syscall.SIGTERM)
 
+	// PID and state file management
 	statePath, err := pid.StatePath()
 	if err != nil {
 		log.Fatalln("listen: failed to get state file path: ", err)
@@ -530,14 +236,14 @@ func listen(config ListenConfig) {
 
 ForListen:
 	for {
-		log.Println("listen: Waiting for record signal...")
+		log.Println("listen: Waiting for record signal (SIGUSR1)...")
+		ctx, cancel := context.WithCancel(context.Background())
 
-		var sig os.Signal
-		for {
-			sig = <-sigChan
+		for sig := range sigChan {
 			switch sig {
 			case syscall.SIGUSR1:
-				// start
+				// Start recording
+				break
 			case syscall.SIGUSR2:
 				log.Println("listen: Received stop/write signal, but wasn't recording")
 				continue
@@ -549,54 +255,315 @@ ForListen:
 			}
 		}
 
-		l := NewListener(config, streamConfig, rtCli, statePath)
-		if err := l.Start(); err != nil {
-			l.cancel()
+		log.Println("main: Starting recording session...")
+		// Create Sherpa stream for this recording session
+		stream := sherpa.NewOnlineStream(recognizer)
+		// Create resampler: CAPTURE_RATE -> MODEL_RATE
+		resampler, err := resampling.New(&resampling.Config{
+			InputRate:  CAPTURE_RATE,
+			OutputRate: MODEL_RATE,
+			Channels:   1,
+			Quality:    resampling.QualitySpec{Preset: resampling.QualityHigh},
+		})
+		if err != nil {
+			log.Println("main: failed to create resampler: ", err)
+			sherpa.DeleteOnlineStream(stream)
+			cancel()
 			continue
 		}
 
-		go l.RunAudio()
-		go l.SendChunks()
-		if l.config.Mode == "assistant" {
-			go l.ReceiveAssistantMessages()
-		} else {
-			go l.ReceiveTranscriptionMessages()
+		// Update state
+		if err := pid.WriteState(statePath, true); err != nil {
+			log.Println("main: failed to write recording state: ", err)
 		}
+		config.UI.Chan <- &gui.ShowListeningMsg{}
 
-	ForSignal:
+		// Create channels
+		errCh := make(chan error, 1)
+		audioSamples := make(chan []float32, 600)     // Float32 at CAPTURE_RATE
+		resampledAudio := make(chan []float32, 600)   // Float32 at MODEL_RATE
+		results := make(chan TranscriptionUpdate, 10) // Transcribed text
+
+		// 1. Audio Capture Goroutine
+		// Captures audio, converts int16->float32, sends to audioSamples
+		chunkWriter := newChunkWriter(ctx, audioSamples, CAPTURE_FORMAT)
+		go func() {
+			log.Println("main: Audio capture goroutine started")
+			if err := audio.Capture(ctx, chunkWriter, streamConfig); err != nil {
+				if errors.Is(err, context.Canceled) {
+					log.Println("main: Audio capture goroutine stopped (context cancelled)")
+					return
+				}
+				errCh <- fmt.Errorf("audio capture: %w", err)
+				cancel()
+			}
+		}()
+
+		// 2. Resampling Goroutine
+		// Resamples from CAPTURE_RATE to MODEL_RATE
+		go func() {
+			defer close(resampledAudio)
+			log.Println("main: Resampling goroutine started")
+
+			for {
+				select {
+				case samples, ok := <-audioSamples:
+					if !ok {
+						// Flush remaining samples from resampler
+						final64, err := resampler.Flush()
+						if err != nil {
+							log.Println("main: resampler flush error: ", err)
+						}
+						final := make([]float32, len(final64))
+						for i, v := range final64 {
+							final[i] = float32(v)
+						}
+						if len(final) > 0 {
+							select {
+							case resampledAudio <- final:
+							case <-ctx.Done():
+							}
+						}
+						log.Println("main: Resampling goroutine stopped (channel closed)")
+						return
+					}
+
+					output, err := resampler.ProcessFloat32(samples)
+					if err != nil {
+						errCh <- fmt.Errorf("resampling: %w", err)
+						cancel()
+						return
+					}
+
+					if len(output) > 0 {
+						select {
+						case resampledAudio <- output:
+						case <-ctx.Done():
+							log.Println("main: Resampling goroutine stopped (context cancelled)")
+							return
+						default:
+							log.Println("main: resampledAudio channel full, dropping samples")
+						}
+					}
+
+				case <-ctx.Done():
+					log.Println("main: Resampling goroutine stopped (context cancelled)")
+					return
+				}
+			}
+		}()
+
+		// 3. Transcription Processing Goroutine
+		// Feeds audio to Sherpa, decodes, detects endpoints
+		go func() {
+			defer close(results)
+			log.Println("main: Transcription processing goroutine started")
+
+			var lastText string
+
+			for {
+				select {
+				case samples, ok := <-resampledAudio:
+					if !ok {
+						log.Println("main: Transcription processing goroutine stopped (channel closed)")
+						return
+					}
+
+					// Feed samples to recognizer at MODEL_RATE
+					stream.AcceptWaveform(MODEL_RATE, samples)
+
+					// Drain any remaining samples in resampledAudio channel
+				drainLoop:
+					for {
+						select {
+						case samples, ok := <-resampledAudio:
+							if !ok {
+								log.Println("main: Channel closed while draining")
+								return
+							}
+							stream.AcceptWaveform(MODEL_RATE, samples)
+						default:
+							// No more samples available, exit drain loop
+							break drainLoop
+						}
+					}
+
+					// Decode when ready
+					for recognizer.IsReady(stream) {
+						recognizer.Decode(stream)
+					}
+
+					// Get current result
+					havePartial := false
+					text := recognizer.GetResult(stream).Text
+
+					// Check for new partial result
+					if len(text) != 0 && lastText != text {
+						lastText = text
+						log.Printf("main: partial result: %s\n", lastText)
+						havePartial = true
+					}
+
+					isEndpoint := recognizer.IsEndpoint(stream)
+					if isEndpoint {
+						log.Println("main: endpoint detected")
+						recognizer.Reset(stream)
+						lastText = ""
+					}
+
+					// Send updates - skip if same as last and not endpoint
+					if havePartial || isEndpoint {
+						update := TranscriptionUpdate{
+							NewText:    text,
+							IsEndpoint: isEndpoint,
+						}
+
+						log.Printf("main: transcription update: %+v\n", update)
+						select {
+						case results <- update:
+						case <-ctx.Done():
+							log.Println("main: Transcription processing goroutine stopped (context cancelled)")
+							return
+						}
+					}
+
+				case <-ctx.Done():
+					log.Println("main: Transcription processing goroutine stopped (context cancelled)")
+					return
+				}
+			}
+		}()
+
+		// 4. Text Output Goroutine
+		// Receives transcribed text and types via dotool
+		go func() {
+			log.Println("main: Text output goroutine started")
+
+			// Start persistent dotool process
+			dotool := exec.CommandContext(ctx, "dotool")
+			stdin, err := dotool.StdinPipe()
+			if err != nil {
+				errCh <- fmt.Errorf("dotool stdin pipe: %w", err)
+				cancel()
+				return
+			}
+
+			dotool.Stderr = os.Stderr
+			if err := dotool.Start(); err != nil {
+				errCh <- fmt.Errorf("dotool start: %w", err)
+				cancel()
+				return
+			}
+
+			// Track the currently displayed text
+			var displayedText string
+
+			// Cleanup function
+			defer func() {
+				stdin.Close()
+				dotool.Wait()
+				cancel()
+				log.Println("main: Text output goroutine stopped")
+			}()
+
+			for {
+				select {
+				case textUpdate, ok := <-results:
+					if !ok {
+						log.Println("main: Text output goroutine stopped (channel closed)")
+						return
+					}
+
+					config.UI.Chan <- &gui.HideMsg{}
+					text := textUpdate.NewText
+					// Compute the difference
+					update := ComputeTextUpdate(displayedText, text)
+					log.Printf("update_text called\n")
+					log.Printf("  old_text='%s' (len=%d)\n", displayedText, len(displayedText))
+					log.Printf("  new_text='%s' (len=%d)\n", text, len(text))
+					log.Printf("  %s\n", update)
+
+					// Send backspace commands
+					if update.DeleteCount > 0 {
+						backspaces := strings.Repeat(" backspace", update.DeleteCount)
+						if _, err := io.WriteString(stdin, fmt.Sprintf("key%s\n", backspaces)); err != nil {
+							errCh <- fmt.Errorf("dotool write backspace: %w", err)
+							cancel()
+							return
+						}
+					}
+
+					// Send new text to append
+					if len(update.ToAppend) > 0 {
+						if _, err := io.WriteString(stdin, fmt.Sprintf("type %s\n", update.ToAppend)); err != nil {
+							errCh <- fmt.Errorf("dotool write type: %w", err)
+							cancel()
+							return
+						}
+					}
+
+					// Update the displayed text state
+					if textUpdate.IsEndpoint {
+						// On endpoint, reset displayed text
+						displayedText = ""
+					} else {
+						displayedText = text
+					}
+
+				case <-ctx.Done():
+					log.Println("main: Text output goroutine stopped (context cancelled)")
+					return
+				}
+			}
+		}()
+
+		// Wait for stop signal or error
 		for {
 			select {
-			case sig = <-sigChan:
+			case <-ctx.Done():
+				break
+			case sig := <-sigChan:
 				switch sig {
 				case syscall.SIGUSR1:
 					log.Println("listen: received record signal, but already recording")
 				case syscall.SIGUSR2:
-					// TODO: Do input_audio_buffer.commit and/or wait for final transcription?
-					break ForSignal
+					log.Println("main: received stop signal")
 				case syscall.SIGTERM:
-					l.config.UI.Chan <- &gui.ShowStoppingMsg{}
-					l.Stop()
+					cancel()
 					break ForListen
 				}
-			// We check this incase there was an error. Otherwise we would sit here waiting
-			// for a signal to stop listening when we have effectively already stopped listening
-			case <-l.ctx.Done():
-				break ForSignal
-			}
-		}
-
-		l.config.UI.Chan <- &gui.ShowStoppingMsg{}
-		l.Stop()
-
-		for {
-			select {
-			case err := <-l.errCh:
+				break
+			case err := <-errCh:
 				if err != nil && !errors.Is(err, context.Canceled) {
-					log.Fatalln("listen: ", err)
+					log.Println("main: error during recording: ", err)
 				}
-			default:
-				continue ForListen
+				break
 			}
+			break
 		}
+
+		config.UI.Chan <- &gui.ShowStoppingMsg{}
+		log.Println("main: stopping recording session...")
+
+		// Cancel context to stop all goroutines
+		cancel()
+
+		// Close audio samples channel to trigger cleanup cascade
+		close(audioSamples)
+
+		// Wait a moment for goroutines to finish cleanly
+		time.Sleep(100 * time.Millisecond)
+
+		// Cleanup Sherpa stream
+		sherpa.DeleteOnlineStream(stream)
+
+		// Set state back to idle
+		if err := pid.WriteState(statePath, false); err != nil {
+			log.Println("main: failed to write idle state: ", err)
+		}
+
+		log.Println("main: recording session finished, ready for next session")
 	}
+
+	log.Println("main: listen function exiting")
 }

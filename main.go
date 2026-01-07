@@ -89,18 +89,10 @@ Environment variables:
 	if cmd == "listen" {
 		apiKey := getOpenaiEnv("API_KEY", "sk-xxx")
 		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
-		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
-		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "")
-		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
-		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
-		prompt := getPrefixedEnv([]string{"VOXINPUT"}, "PROMPT", "")
-		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
-
-		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -127,42 +119,6 @@ Environment variables:
 		replay := slices.Contains(os.Args[2:], "--replay")
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
 
-		var outputFileArg string
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			if arg == "--output-file" && i+1 < len(os.Args) {
-				outputFileArg = os.Args[i+1]
-				break
-			}
-		}
-		if outputFileArg != "" {
-			outputFile = outputFileArg
-		}
-
-		var promptArg string
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			if arg == "--prompt" && i+1 < len(os.Args) {
-				promptArg = os.Args[i+1]
-				break
-			}
-		}
-		if promptArg != "" {
-			prompt = promptArg
-		}
-
-		var modeArg string
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
-			if arg == "--mode" && i+1 < len(os.Args) {
-				modeArg = os.Args[i+1]
-				break
-			}
-		}
-		if modeArg != "" {
-			mode = modeArg
-		}
-
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
@@ -170,19 +126,7 @@ Environment variables:
 			go func() {
 				listen(ListenConfig{
 					PIDPath:        pidPath,
-					APIKey:         apiKey,
-					HTTPAPIBase:    httpApiBase,
-					WSAPIBase:      wsApiBase,
-					Lang:           lang,
-					Model:          model,
-					Timeout:        timeout,
 					UI:             ui,
-					CaptureDevice:  captureDeviceName,
-					OutputFile:     outputFile,
-					Prompt:         prompt,
-					Mode:           mode,
-					AssistantModel: assistantModel,
-					AssistantVoice: assistantVoice,
 				})
 				cancel()
 			}()
