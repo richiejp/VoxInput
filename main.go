@@ -95,7 +95,7 @@ Environment variables:
 		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "")
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
-		showStatus := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
+		showStatusText := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
 		prompt := getPrefixedEnv([]string{"VOXINPUT"}, "PROMPT", "")
 		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
@@ -116,13 +116,10 @@ Environment variables:
 			log.Println("main: language is set to ", lang)
 		}
 
-		if showStatus == "no" || showStatus == "false" {
-			showStatus = ""
-		}
-
 		if slices.Contains(os.Args[2:], "--no-show-status") {
-			showStatus = ""
+			showStatusText = "no"
 		}
+		showStatus := !(showStatusText == "no" || showStatusText == "false")
 
 		replay := slices.Contains(os.Args[2:], "--replay")
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
