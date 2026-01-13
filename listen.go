@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	openairt "github.com/WqyJh/go-openai-realtime"
+	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/gen2brain/malgo"
 
 	"github.com/richiejp/VoxInput/internal/audio"
@@ -138,12 +138,7 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 		switch msg.ServerEventType() {
 		case openairt.ServerEventTypeError:
 			log.Println("waitForSessionUpdated: Server error: ", msg.(openairt.ErrorEvent).Error.Message)
-		case openairt.ServerEventTypeConversationCreated:
 		case openairt.ServerEventTypeSessionCreated:
-			fallthrough
-		case openairt.ServerEventTypeTranscriptionSessionCreated:
-			fallthrough
-		case openairt.ServerEventTypeTranscriptionSessionUpdated:
 			fallthrough
 		case openairt.ServerEventTypeSessionUpdated:
 			return nil
@@ -235,30 +230,48 @@ func (l *Listener) Start() error {
 			EventBase: openairt.EventBase{
 				EventID: "Initial update",
 			},
-			Session: openairt.ClientSession{
-				Modalities:        []openairt.Modality{"text", "audio"},
-				Instructions:      l.config.Prompt,
-				Voice:             voice,
-				InputAudioFormat:  openairt.AudioFormatPcm16,
-				OutputAudioFormat: openairt.AudioFormatPcm16,
-				TurnDetection: &openairt.ClientTurnDetection{
-					Type: openairt.ClientTurnDetectionTypeServerVad,
+			Session: openairt.SessionUnion{
+				Realtime: &openairt.RealtimeSession{
+					OutputModalities: []openairt.Modality{openairt.ModalityText, openairt.ModalityAudio},
+					Instructions:     l.config.Prompt,
+					Audio: &openairt.RealtimeSessionAudio{
+						Input: &openairt.SessionAudioInput{
+							Format: &openairt.AudioFormatUnion{
+								PCM: &openairt.AudioFormatPCM{Rate: 24000},
+							},
+							TurnDetection: &openairt.TurnDetectionUnion{
+								ServerVad: &openairt.ServerVad{},
+							},
+						},
+						Output: &openairt.SessionAudioOutput{
+							Voice: voice,
+							Format: &openairt.AudioFormatUnion{
+								PCM: &openairt.AudioFormatPCM{Rate: 24000},
+							},
+						},
+					},
 				},
 			},
 		})
 	} else {
-		err = l.conn.SendMessage(initCtx, openairt.TranscriptionSessionUpdateEvent{
+		err = l.conn.SendMessage(initCtx, openairt.SessionUpdateEvent{
 			EventBase: openairt.EventBase{
 				EventID: "Initial update",
 			},
-			Session: openairt.ClientTranscriptionSession{
-				InputAudioTranscription: &openairt.InputAudioTranscription{
-					Model:    l.config.Model,
-					Language: l.config.Lang,
-					Prompt:   l.config.Prompt,
-				},
-				TurnDetection: &openairt.ClientTurnDetection{
-					Type: openairt.ClientTurnDetectionTypeServerVad,
+			Session: openairt.SessionUnion{
+				Transcription: &openairt.TranscriptionSession{
+					Audio: &openairt.TranscriptionSessionAudio{
+						Input: &openairt.SessionAudioInput{
+							Transcription: &openairt.AudioTranscription{
+								Model:    l.config.Model,
+								Language: l.config.Lang,
+								Prompt:   l.config.Prompt,
+							},
+							TurnDetection: &openairt.TurnDetectionUnion{
+								ServerVad: &openairt.ServerVad{},
+							},
+						},
+					},
 				},
 			},
 		})
@@ -353,8 +366,8 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
 			l.config.UI.Chan <- &gui.ShowTranscribingMsg{}
-		case openairt.ServerEventTypeResponseAudioTranscriptDone:
-			text = msg.(openairt.ResponseAudioTranscriptDoneEvent).Transcript
+		case openairt.ServerEventTypeResponseOutputAudioTranscriptDone:
+			text = msg.(openairt.ResponseOutputAudioTranscriptDoneEvent).Transcript
 		case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
 			text = msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
 		case openairt.ServerEventTypeError:
@@ -436,8 +449,8 @@ func (l *Listener) ReceiveAssistantMessages() {
 			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
 			l.config.UI.Chan <- &gui.ShowGeneratingResponseMsg{}
-		case openairt.ServerEventTypeResponseAudioDelta:
-			delta := msg.(openairt.ResponseAudioDeltaEvent)
+		case openairt.ServerEventTypeResponseOutputAudioDelta:
+			delta := msg.(openairt.ResponseOutputAudioDeltaEvent)
 			b, err := base64.StdEncoding.DecodeString(delta.Delta)
 			if err != nil {
 				log.Println("Listener.ReceiveAssistantMessages: error decoding audio delta: ", err)
