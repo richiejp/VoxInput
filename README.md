@@ -211,12 +211,12 @@ To create a transcript of an online meeting or video stream by capturing system 
 docker run -p 8080:8080 --name local-ai -ti localai/localai:latest
 ```
 
-2. Open http://localhost:8080 in your browser to access the LocalAI web interface and install the whisper-1 and silero-vad-ggml models.
+2. See https://localai.io/features/openai-realtime for configuring the needed pipeline model
 
 3. Test out VoxInput:
 
 ```
-VOXINPUT_TRANSCRIPTION_MODEL=whisper-1 VOXINPUT_TRANSCRIPTION_TIMEOUT=30s voxinput listen
+VOXINPUT_TRANSCRIPTION_MODEL=gpt-realtime VOXINPUT_TRANSCRIPTION_TIMEOUT=30s voxinput listen
 voxinput record && sleep 30s && voxinput write
 ```
 

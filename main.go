@@ -44,6 +44,7 @@ func main() {
            --output-file <path> Write transcribed text to file instead of keyboard
            --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
            --mode <transcription|assistant> (realtime only, default: transcription)
+           --instructions <text> System prompt for the assistant model
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -60,13 +61,14 @@ Environment variables:
   VOXINPUT_WS_BASE_URL or OPENAI_WS_BASE_URL - WebSocket API base URL (default: ws://localhost:8080/v1/realtime)
   VOXINPUT_LANG or LANG - Language code for transcription (default: none)
   VOXINPUT_TRANSCRIPTION_MODEL or TRANSCRIPTION_MODEL - Transcription model (default: whisper-1)
-  VOXINPUT_ASSISTANT_MODEL or ASSISTANT_MODEL - Assistant model (default: none)
-  VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: alloy)
+  VOXINPUT_ASSISTANT_MODEL or ASSISTANT_MODEL - Assistant model (default: gpt-realtime)
+  VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: none)
+	VOXINPUT_ASSISTANT_INSTRUCTIONS - System prompt for the assistant model (default: none)
   VOXINPUT_TRANSCRIPTION_TIMEOUT or TRANSCRIPTION_TIMEOUT - Transcription timeout (default: 30s)
   VOXINPUT_SHOW_STATUS or SHOW_STATUS - Show status notifications (yes/no, default: yes)
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
-  VOXINPUT_PROMPT - Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
+  VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
@@ -92,8 +94,9 @@ Environment variables:
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
-		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "")
+		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "gpt-realtime")
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
+		instructions := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_INSTRUCTIONS", "")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatusText := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
@@ -160,6 +163,18 @@ Environment variables:
 			mode = modeArg
 		}
 
+		var instructionsArg string
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--instructions" && i+1 < len(os.Args) {
+				instructionsArg = os.Args[i+1]
+				break
+			}
+		}
+		if instructionsArg != "" {
+			instructions = instructionsArg
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
@@ -180,6 +195,7 @@ Environment variables:
 					Mode:           mode,
 					AssistantModel: assistantModel,
 					AssistantVoice: assistantVoice,
+					Instructions:   instructions,
 				})
 				cancel()
 			}()

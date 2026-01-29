@@ -7,6 +7,7 @@
 - Use the linux kernel guidelines for commenting insofar as they are applicable to Go (e.g. avoid stating the obvious)
 - Use `any` instead of `interface{}` and in general use modern Go
 - Make liberal use of line breaks; don't try to stuff structs onto one line
+- If a string variable only takes a finite set of values known at build time, then define a type for it and const values (enum pattern)
 
 # Error handling
 

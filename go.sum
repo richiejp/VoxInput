@@ -1,7 +1,7 @@
 git.sr.ht/~jackmordaunt/go-toast v1.1.2 h1:/yrfI55LRt1M7H1vkaw+NaH1+L1CDxrqDltwm5euVuE=
 git.sr.ht/~jackmordaunt/go-toast v1.1.2/go.mod h1:jA4OqHKTQ4AFBdwrSnwnskUIIS3HYzlJSgdzCKqfavo=
-github.com/WqyJh/go-openai-realtime/v2 v2.0.0-rc h1:nOCfDNfbqUODJl+uGI/sl92tSiJv5rzx4uxZhqwgX7c=
-github.com/WqyJh/go-openai-realtime/v2 v2.0.0-rc/go.mod h1:XdhntAObZhUOGQTV7JZEvRkt2T+VwyvSnYIDNigGsDs=
+github.com/WqyJh/go-openai-realtime/v2 v2.0.0-rc.0.20260120095754-b1a91a348dbd h1:y9nhaOW8kIiwfNX9EjPFFfxyqqmT4WmGB0kKp9m09Vc=
+github.com/WqyJh/go-openai-realtime/v2 v2.0.0-rc.0.20260120095754-b1a91a348dbd/go.mod h1:XdhntAObZhUOGQTV7JZEvRkt2T+VwyvSnYIDNigGsDs=
 github.com/WqyJh/jsontools v0.3.1 h1:zKT+DvxUSTji06ZcjsbQzZ48PycFZDI0OGATmmFhJ+U=
 github.com/WqyJh/jsontools v0.3.1/go.mod h1:Gk2OlyXjAJmYNZ0aUbEXGHq4I5ihGRjXxVuUprWtkss=
 github.com/coder/websocket v1.8.12 h1:5bUXkEPPIbewrnkU8LTCLVaxi4N4J8ahufH2vlo4NAo=
