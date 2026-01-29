@@ -14,14 +14,20 @@ type Msg interface {
 type ShowListeningMsg struct{}
 type ShowSpeechDetectedMsg struct{}
 type ShowTranscribingMsg struct{}
+type ShowSpeechSubmittedMsg struct{}
 type ShowGeneratingResponseMsg struct{}
+type ShowFunctionCallMsg struct {
+	FunctionName string
+}
 type HideMsg struct{}
 type ShowStoppingMsg struct{}
 
 func (m *ShowListeningMsg) IsMsg() bool          { return true }
 func (m *ShowSpeechDetectedMsg) IsMsg() bool     { return true }
 func (m *ShowTranscribingMsg) IsMsg() bool       { return true }
+func (m *ShowSpeechSubmittedMsg) IsMsg() bool    { return true }
 func (m *ShowGeneratingResponseMsg) IsMsg() bool { return true }
+func (m *ShowFunctionCallMsg) IsMsg() bool       { return true }
 func (m *HideMsg) IsMsg() bool                   { return true }
 func (m *ShowStoppingMsg) IsMsg() bool           { return true }
 
@@ -63,9 +69,15 @@ func (g *GUI) Run() {
 			case *ShowTranscribingMsg:
 				text = "Transcribing..."
 				image = "text-x-generic"
+			case *ShowSpeechSubmittedMsg:
+				text = "Speech submitted..."
+				image = "network-transmit-receive"
 			case *ShowGeneratingResponseMsg:
 				text = "Generating response..."
 				image = "audio-speakers"
+			case *ShowFunctionCallMsg:
+				text = "Calling function " + msg.(*ShowFunctionCallMsg).FunctionName + "..."
+				image = "applications-system"
 			case *HideMsg:
 				continue
 			case *ShowStoppingMsg:
