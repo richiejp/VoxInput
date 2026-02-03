@@ -45,6 +45,7 @@ func main() {
            --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
            --mode <transcription|assistant> (realtime only, default: transcription)
            --instructions <text> System prompt for the assistant model
+           --no-write-text (assistant mode only) Disable the write_text tool call
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -64,6 +65,7 @@ Environment variables:
   VOXINPUT_ASSISTANT_MODEL or ASSISTANT_MODEL - Assistant model (default: gpt-realtime)
   VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: none)
 	VOXINPUT_ASSISTANT_INSTRUCTIONS - System prompt for the assistant model (default: none)
+  VOXINPUT_ASSISTANT_ENABLE_WRITE_TEXT - Enable the write_text tool in assistant mode (yes/no, default: yes)
   VOXINPUT_TRANSCRIPTION_TIMEOUT or TRANSCRIPTION_TIMEOUT - Transcription timeout (default: 30s)
   VOXINPUT_SHOW_STATUS or SHOW_STATUS - Show status notifications (yes/no, default: yes)
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
@@ -97,6 +99,7 @@ Environment variables:
 		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "gpt-realtime")
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		instructions := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_INSTRUCTIONS", "")
+		enableWriteTextStr := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_ENABLE_WRITE_TEXT", "yes")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatusText := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
@@ -123,6 +126,11 @@ Environment variables:
 			showStatusText = "no"
 		}
 		showStatus := !(showStatusText == "no" || showStatusText == "false")
+
+		if slices.Contains(os.Args[2:], "--no-write-text") {
+			enableWriteTextStr = "no"
+		}
+		enableWriteText := !(enableWriteTextStr == "no" || enableWriteTextStr == "false")
 
 		replay := slices.Contains(os.Args[2:], "--replay")
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
@@ -181,21 +189,22 @@ Environment variables:
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:        pidPath,
-					APIKey:         apiKey,
-					HTTPAPIBase:    httpApiBase,
-					WSAPIBase:      wsApiBase,
-					Lang:           lang,
-					Model:          model,
-					Timeout:        timeout,
-					UI:             ui,
-					CaptureDevice:  captureDeviceName,
-					OutputFile:     outputFile,
-					Prompt:         prompt,
-					Mode:           mode,
-					AssistantModel: assistantModel,
-					AssistantVoice: assistantVoice,
-					Instructions:   instructions,
+					PIDPath:         pidPath,
+					APIKey:          apiKey,
+					HTTPAPIBase:     httpApiBase,
+					WSAPIBase:       wsApiBase,
+					Lang:            lang,
+					Model:           model,
+					Timeout:         timeout,
+					UI:              ui,
+					CaptureDevice:   captureDeviceName,
+					OutputFile:      outputFile,
+					Prompt:          prompt,
+					Mode:            mode,
+					AssistantModel:  assistantModel,
+					AssistantVoice:  assistantVoice,
+					Instructions:    instructions,
+					EnableWriteText: enableWriteText,
 				})
 				cancel()
 			}()
