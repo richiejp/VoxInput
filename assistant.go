@@ -11,13 +11,16 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
+	"time"
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 )
 
-const functionNameWriteText = "write_text"
+const functionNameDotool = "dotool"
 
 func (l *Listener) startAssistantSession(ctx context.Context) error {
 	voice := openairt.Voice("")
@@ -26,13 +29,26 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 	}
 
 	var tools []openairt.ToolUnion
-	if l.config.EnableWriteText {
+	if l.config.EnableDotool {
 		tools = []openairt.ToolUnion{
 			{
 				Function: &openairt.ToolFunction{
-					Name:        functionNameWriteText,
-					Description: "Type text on the keyboard; when the user asks you to write or type something, you can use this function to do so",
-					Parameters:  `{"type": "object", "properties": {"text": {"type": "string", "description": "The text to type"}}, "required": ["text"]}`,
+					Name:        functionNameDotool,
+					Description: "Execute dotool commands to control keyboard and mouse. Supports keyboard actions (key, keydown, keyup, type), mouse actions (click, buttondown, buttonup, wheel, hwheel, mouseto, mousemove), timing actions (keydelay, keyhold, typedelay, typehold), and sleep. Sleep takes milliseconds as argument.",
+					Parameters: `{
+						"type": "object",
+						"properties": {
+							"commands": {
+								"type": "array",
+								"description": "List of dotool commands to execute sequentially",
+								"items": {
+									"type": "string",
+									"pattern": "^(key|keydown|keyup|type|click|buttondown|buttonup|wheel|hwheel|mouseto|mousemove|keydelay|keyhold|typedelay|typehold|sleep)\\s+.+$"
+								}
+							}
+						},
+						"required": ["commands"]
+					}`,
 				},
 			},
 		}
@@ -114,46 +130,18 @@ func (l *Listener) ReceiveAssistantMessages() {
 		case openairt.ServerEventTypeResponseFunctionCallArgumentsDone:
 			event := msg.(openairt.ResponseFunctionCallArgumentsDoneEvent)
 			l.config.UI.Chan <- &gui.ShowFunctionCallMsg{FunctionName: event.Name}
-			if event.Name == functionNameWriteText {
+			if event.Name == functionNameDotool {
 				var args struct {
-					Text string `json:"text"`
+					Commands []string `json:"commands"`
 				}
 				if err := json.Unmarshal([]byte(event.Arguments), &args); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error unmarshalling function arguments: ", err)
 					continue
 				}
 
-				dotool := exec.CommandContext(l.ctx, "dotool")
-				stdin, err := dotool.StdinPipe()
-				if err != nil {
-					l.errCh <- fmt.Errorf("dotool stdin pipe: %w", err)
-					l.cancel()
-					return
-				}
-				dotool.Stderr = os.Stderr
-				if err := dotool.Start(); err != nil {
-					l.errCh <- fmt.Errorf("dotool start: %w", err)
-					l.cancel()
-					return
-				}
-				_, err = io.WriteString(stdin, fmt.Sprintf("type %s ", args.Text))
-				if err != nil {
-					l.errCh <- fmt.Errorf("dotool stdin WriteString: %w", err)
-					l.cancel()
-					return
-				}
-				if err := stdin.Close(); err != nil {
-					l.errCh <- fmt.Errorf("close dotool stdin: %w", err)
-					l.cancel()
-					return
-				}
-				if err := dotool.Wait(); err != nil {
-					if errors.Is(err, context.Canceled) {
-						return
-					}
-					l.errCh <- fmt.Errorf("dotool wait: %w", err)
-					l.cancel()
-					return
+				if err := l.executeDotoolCommands(args.Commands); err != nil {
+					log.Println("Listener.ReceiveAssistantMessages: error executing dotool commands: ", err)
+					continue
 				}
 			}
 		case openairt.ServerEventTypeError:
@@ -164,4 +152,52 @@ func (l *Listener) ReceiveAssistantMessages() {
 		}
 
 	}
+}
+
+func (l *Listener) executeDotoolCommands(commands []string) error {
+	dotool := exec.CommandContext(l.ctx, "dotool")
+	stdin, err := dotool.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("dotool stdin pipe: %w", err)
+	}
+	dotool.Stderr = os.Stderr
+	if err := dotool.Start(); err != nil {
+		return fmt.Errorf("dotool start: %w", err)
+	}
+
+	for _, cmd := range commands {
+		parts := strings.SplitN(cmd, " ", 2)
+		if len(parts) == 0 {
+			continue
+		}
+
+		action := parts[0]
+		if action == "sleep" {
+			if len(parts) < 2 {
+				return fmt.Errorf("sleep command requires milliseconds argument")
+			}
+			ms, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err != nil {
+				return fmt.Errorf("invalid sleep duration: %w", err)
+			}
+			time.Sleep(time.Duration(ms) * time.Millisecond)
+			continue
+		}
+
+		_, err = io.WriteString(stdin, cmd+"\n")
+		if err != nil {
+			return fmt.Errorf("dotool stdin WriteString: %w", err)
+		}
+	}
+
+	if err := stdin.Close(); err != nil {
+		return fmt.Errorf("close dotool stdin: %w", err)
+	}
+	if err := dotool.Wait(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		return fmt.Errorf("dotool wait: %w", err)
+	}
+	return nil
 }

@@ -45,7 +45,7 @@ func main() {
            --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
            --mode <transcription|assistant> (realtime only, default: transcription)
            --instructions <text> System prompt for the assistant model
-           --no-write-text (assistant mode only) Disable the write_text tool call
+           --no-dotool (assistant mode only) Disable the dotool function call
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -99,7 +99,7 @@ Environment variables:
 		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "gpt-realtime")
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		instructions := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_INSTRUCTIONS", "")
-		enableWriteTextStr := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_ENABLE_WRITE_TEXT", "yes")
+		enableDotoolStr := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_ENABLE_DOTOOL", "yes")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatusText := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
@@ -127,10 +127,10 @@ Environment variables:
 		}
 		showStatus := !(showStatusText == "no" || showStatusText == "false")
 
-		if slices.Contains(os.Args[2:], "--no-write-text") {
-			enableWriteTextStr = "no"
+		if slices.Contains(os.Args[2:], "--no-dotool") {
+			enableDotoolStr = "no"
 		}
-		enableWriteText := !(enableWriteTextStr == "no" || enableWriteTextStr == "false")
+		enableDotool := !(enableDotoolStr == "no" || enableDotoolStr == "false")
 
 		replay := slices.Contains(os.Args[2:], "--replay")
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
@@ -189,22 +189,22 @@ Environment variables:
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:         pidPath,
-					APIKey:          apiKey,
-					HTTPAPIBase:     httpApiBase,
-					WSAPIBase:       wsApiBase,
-					Lang:            lang,
-					Model:           model,
-					Timeout:         timeout,
-					UI:              ui,
-					CaptureDevice:   captureDeviceName,
-					OutputFile:      outputFile,
-					Prompt:          prompt,
-					Mode:            mode,
-					AssistantModel:  assistantModel,
-					AssistantVoice:  assistantVoice,
-					Instructions:    instructions,
-					EnableWriteText: enableWriteText,
+					PIDPath:        pidPath,
+					APIKey:         apiKey,
+					HTTPAPIBase:    httpApiBase,
+					WSAPIBase:      wsApiBase,
+					Lang:           lang,
+					Model:          model,
+					Timeout:        timeout,
+					UI:             ui,
+					CaptureDevice:  captureDeviceName,
+					OutputFile:     outputFile,
+					Prompt:         prompt,
+					Mode:           mode,
+					AssistantModel: assistantModel,
+					AssistantVoice: assistantVoice,
+					Instructions:   instructions,
+					EnableDotool:   enableDotool,
 				})
 				cancel()
 			}()

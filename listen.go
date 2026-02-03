@@ -167,7 +167,7 @@ type ListenConfig struct {
 	AssistantModel string
 	AssistantVoice string
 	Instructions   string
-	EnableWriteText bool
+	EnableDotool   bool
 }
 
 type Listener struct {
