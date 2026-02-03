@@ -71,7 +71,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
 - `VOXINPUT_ASSISTANT_MODEL`: Assistant model (default: `none`).
 - `VOXINPUT_ASSISTANT_VOICE`: Assistant voice (default: `alloy`).
-- `VOXINPUT_ASSISTANT_ENABLE_WRITE_TEXT`: Enable the write_text tool in assistant mode (yes/no, default: yes).
+- `VOXINPUT_ASSISTANT_INSTRUCTIONS` or `ASSISTANT_INSTRUCTIONS`: System prompt for the assistant model. Used to configure assistant behavior and available actions.
+- `VOXINPUT_ASSISTANT_ENABLE_DOTOOL`: Enable the dotool function in assistant mode (yes/no, default: yes).
 - `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
 - `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
@@ -90,7 +91,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--output-file <path>`: Save transcript to file instead of typing.
   - `--prompt <text>`: Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
   - `--mode <transcription|assistant>`: Realtime mode (default: transcription)
-  - `--no-write-text`: (assistant mode only) Disable the write_text tool call
+  - `--instructions <text>`: System prompt for the assistant model
+  - `--no-dotool`: (assistant mode only) Disable the dotool function call
 
   ```bash
   ./voxinput listen
@@ -205,6 +207,82 @@ To create a transcript of an online meeting or video stream by capturing system 
 
 6. The transcript is now in `meeting_transcript.txt`.
 
+### Assistant Mode
+
+Assistant mode enables voice conversations with an LLM that can perform actions on your desktop using the `dotool` function.
+
+#### Configuring Assistant Instructions
+
+The `VOXINPUT_ASSISTANT_INSTRUCTIONS` or `ASSISTANT_INSTRUCTIONS` environment variable configures the assistant's behavior and available actions. This system prompt should:
+
+1. **Describe the assistant's role and personality**
+2. **Explain available actions using dotool commands**
+3. **Provide examples of how to chain commands together to perform actions using the keyboard**
+
+#### dotool Function
+
+When enabled (default), the assistant has access to a `dotool` function that accepts an array of commands. These commands support:
+
+- **Keyboard actions**: `key`, `keydown`, `keyup`, `type`
+- **Mouse actions**: `click`, `buttondown`, `buttonup`, `wheel`, `hwheel`, `mouseto`, `mousemove`
+- **Timing actions**: `keydelay`, `keyhold`, `typedelay`, `typehold`
+- **Sleep**: `sleep <milliseconds>` - handled by VoxInput between sending commands to dotool
+
+See the [dotool documentation](https://git.sr.ht/~geb/dotool) for complete details on available actions.
+
+#### Chaining Commands
+
+Commands are executed sequentially. Use `sleep` to add delays between actions:
+
+```json
+{
+  "commands": [
+    "key super+d",
+    "sleep 1000",
+    "type firefox",
+    "sleep 1000",
+    "key enter"
+  ]
+}
+```
+
+#### Example Assistant Instructions
+
+The following works with Qwen3-4b and my Sway desktop setup where `super+d` opens the application launcher.
+
+```bash
+export VOXINPUT_ASSISTANT_INSTRUCTIONS="You are a desktop voice assistant. Be very concise and never use Markdown or punctuation that can not be converted to speech unless it is the argument to a tool call. When the user asks you to write or transcribe something use dotool with a type command. If the user wants to open an application then use dotool with: key super+d, sleep 1000, type <appname>, sleep 1000, key enter. Use lowercase for application names."
+```
+
+#### Running Assistant Mode
+
+```bash
+export OPENAI_BASE_URL=http://ai.local:8081/v1
+export OPENAI_WS_BASE_URL=ws://ai.local:8081/v1/realtime
+export VOXINPUT_TRANSCRIPTION_MODEL=whisper-large-turbo
+export VOXINPUT_MODE=assistant
+export VOXINPUT_ASSISTANT_INSTRUCTIONS="You are a desktop voice assistant..."
+
+./voxinput listen
+```
+
+Then use `./voxinput record` to start a voice conversation. The assistant will respond with voice and can execute dotool commands when appropriate.
+
+#### Disabling dotool Function
+
+To disable the dotool function (assistant will only respond with voice):
+
+```bash
+./voxinput listen --mode assistant --no-dotool
+```
+
+or:
+
+```bash
+export VOXINPUT_ASSISTANT_ENABLE_DOTOOL=no
+./voxinput listen --mode assistant
+```
+
 ### Quick start with LocalAI
 
 1. Follow https://localai.io/installation/ to install LocalAI, the simplest way is using Docker:
@@ -234,10 +312,13 @@ The realtime mode has a UI to display various actions being taken by VoxInput. H
 - [x] GUI and system tray
 - [x] Voice detection and activation (partial, see below)
 - [ ] Code words to start and stop transcription
-- [ ] Assistant mode
+- [x] Assistant mode
    - [x] Voice conversations with an LLM
    - [ ] Submit desktop images to a VLM to allow it to click on items
-   - [ ] Use tool calls or MCP to allow the VLM/LLM to perform actions
+   - [x] Use tool calls or MCP to allow the VLM/LLM to perform actions
+      - [x] Dotool tool that allows the agent to make key presses
+      - [ ] MCP
+      - [ ] Support agent skills
 
 ## Signals
 
