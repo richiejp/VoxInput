@@ -24,6 +24,20 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 	if l.config.AssistantVoice != "" {
 		voice = openairt.Voice(l.config.AssistantVoice)
 	}
+
+	var tools []openairt.ToolUnion
+	if l.config.EnableWriteText {
+		tools = []openairt.ToolUnion{
+			{
+				Function: &openairt.ToolFunction{
+					Name:        functionNameWriteText,
+					Description: "Type text on the keyboard; when the user asks you to write or type something, you can use this function to do so",
+					Parameters:  `{"type": "object", "properties": {"text": {"type": "string", "description": "The text to type"}}, "required": ["text"]}`,
+				},
+			},
+		}
+	}
+
 	return l.conn.SendMessage(ctx, openairt.SessionUpdateEvent{
 		EventBase: openairt.EventBase{
 			EventID: "Initial update",
@@ -48,15 +62,7 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 						},
 					},
 				},
-				Tools: []openairt.ToolUnion{
-					{
-						Function: &openairt.ToolFunction{
-							Name:        functionNameWriteText,
-							Description: "Type text on the keyboard; when the user asks you to write or type something, you can use this function to do so",
-							Parameters:  `{"type": "object", "properties": {"text": {"type": "string", "description": "The text to type"}}, "required": ["text"]}`,
-						},
-					},
-				},
+				Tools: tools,
 			},
 		},
 	})

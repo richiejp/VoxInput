@@ -167,6 +167,7 @@ type ListenConfig struct {
 	AssistantModel string
 	AssistantVoice string
 	Instructions   string
+	EnableWriteText bool
 }
 
 type Listener struct {
@@ -310,7 +311,7 @@ func listen(config ListenConfig) {
 	streamConfig := audio.StreamConfig{
 		Format:       malgo.FormatS16,
 		Channels:     1,
-		SampleRate:   24000,
+		SampleRate:   16000,
 		MalgoContext: mctx.Context,
 	}
 

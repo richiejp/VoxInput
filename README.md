@@ -71,6 +71,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
 - `VOXINPUT_ASSISTANT_MODEL`: Assistant model (default: `none`).
 - `VOXINPUT_ASSISTANT_VOICE`: Assistant voice (default: `alloy`).
+- `VOXINPUT_ASSISTANT_ENABLE_WRITE_TEXT`: Enable the write_text tool in assistant mode (yes/no, default: yes).
 - `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
 - `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
@@ -89,6 +90,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--output-file <path>`: Save transcript to file instead of typing.
   - `--prompt <text>`: Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
   - `--mode <transcription|assistant>`: Realtime mode (default: transcription)
+  - `--no-write-text`: (assistant mode only) Disable the write_text tool call
 
   ```bash
   ./voxinput listen
