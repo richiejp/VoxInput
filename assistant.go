@@ -65,7 +65,7 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 				Audio: &openairt.RealtimeSessionAudio{
 					Input: &openairt.SessionAudioInput{
 						Format: &openairt.AudioFormatUnion{
-							PCM: &openairt.AudioFormatPCM{Rate: 24000},
+							PCM: &openairt.AudioFormatPCM{Rate: l.config.InputSampleRate},
 						},
 						TurnDetection: &openairt.TurnDetectionUnion{
 							ServerVad: &openairt.ServerVad{},
@@ -74,7 +74,7 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 					Output: &openairt.SessionAudioOutput{
 						Voice: voice,
 						Format: &openairt.AudioFormatUnion{
-							PCM: &openairt.AudioFormatPCM{Rate: 24000},
+							PCM: &openairt.AudioFormatPCM{Rate: l.config.OutputSampleRate},
 						},
 					},
 				},

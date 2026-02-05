@@ -141,7 +141,7 @@ Listen:
 			log.Println("main: Playback Done")
 		}
 
-		wavHeader := audio.NewWAVHeader(uint32(buf.Len()))
+		wavHeader := audio.NewWAVHeader(uint32(buf.Len()), uint32(streamConfig.SampleRate))
 		var headerBuf bytes.Buffer
 		if err := wavHeader.Write(&headerBuf); err != nil {
 			log.Println("main: ", fmt.Errorf("write wav header: %w", err))
