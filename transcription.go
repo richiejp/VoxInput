@@ -65,8 +65,10 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 		var text string
 		switch msg.ServerEventType() {
 		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
+			log.Println("Listener.ReceiveTranscriptionMessages: speech detected")
 			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
+			log.Println("Listener.ReceiveTranscriptionMessages: speech stopped, transcribing")
 			l.config.UI.Chan <- &gui.ShowTranscribingMsg{}
 		case openairt.ServerEventTypeResponseOutputAudioTranscriptDone:
 			text = msg.(openairt.ResponseOutputAudioTranscriptDoneEvent).Transcript
@@ -97,6 +99,7 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 			}
 			continue
 		}
+		log.Printf("Listener.ReceiveTranscriptionMessages: typing text: %q", text)
 		dotool := exec.CommandContext(l.ctx, "dotool")
 		stdin, err := dotool.StdinPipe()
 		if err != nil {
@@ -129,5 +132,6 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 			l.cancel()
 			return
 		}
+		log.Println("Listener.ReceiveTranscriptionMessages: text typed successfully")
 	}
 }

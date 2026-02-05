@@ -110,10 +110,13 @@ func (l *Listener) ReceiveAssistantMessages() {
 		log.Println("Listener.ReceiveAssistantMessages: receiving message: ", msg.ServerEventType())
 		switch msg.ServerEventType() {
 		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
+			log.Println("Listener.ReceiveAssistantMessages: speech detected")
 			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
+			log.Println("Listener.ReceiveAssistantMessages: speech stopped, processing")
 			l.config.UI.Chan <- &gui.ShowSpeechSubmittedMsg{}
 		case openairt.ServerEventTypeResponseCreated:
+			log.Println("Listener.ReceiveAssistantMessages: generating response")
 			l.config.UI.Chan <- &gui.ShowGeneratingResponseMsg{}
 		case openairt.ServerEventTypeResponseOutputAudioDelta:
 			delta := msg.(openairt.ResponseOutputAudioDeltaEvent)
@@ -129,7 +132,11 @@ func (l *Listener) ReceiveAssistantMessages() {
 			}
 		case openairt.ServerEventTypeResponseFunctionCallArgumentsDone:
 			event := msg.(openairt.ResponseFunctionCallArgumentsDoneEvent)
-			l.config.UI.Chan <- &gui.ShowFunctionCallMsg{FunctionName: event.Name}
+			log.Printf("Listener.ReceiveAssistantMessages: function call %s with arguments: %s", event.Name, event.Arguments)
+			l.config.UI.Chan <- &gui.ShowFunctionCallMsg{
+				FunctionName: event.Name,
+				Arguments:    event.Arguments,
+			}
 			if event.Name == functionNameDotool {
 				var args struct {
 					Commands []string `json:"commands"`
@@ -155,6 +162,7 @@ func (l *Listener) ReceiveAssistantMessages() {
 }
 
 func (l *Listener) executeDotoolCommands(commands []string) error {
+	log.Printf("Listener.executeDotoolCommands: executing %d commands", len(commands))
 	dotool := exec.CommandContext(l.ctx, "dotool")
 	stdin, err := dotool.StdinPipe()
 	if err != nil {
@@ -165,7 +173,8 @@ func (l *Listener) executeDotoolCommands(commands []string) error {
 		return fmt.Errorf("dotool start: %w", err)
 	}
 
-	for _, cmd := range commands {
+	for i, cmd := range commands {
+		log.Printf("Listener.executeDotoolCommands: [%d/%d] %s", i+1, len(commands), cmd)
 		parts := strings.SplitN(cmd, " ", 2)
 		if len(parts) == 0 {
 			continue
@@ -199,5 +208,6 @@ func (l *Listener) executeDotoolCommands(commands []string) error {
 		}
 		return fmt.Errorf("dotool wait: %w", err)
 	}
+	log.Println("Listener.executeDotoolCommands: completed successfully")
 	return nil
 }
