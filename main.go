@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -72,6 +73,8 @@ Environment variables:
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
+  VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
+  VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
 	case "ver":
@@ -105,6 +108,8 @@ Environment variables:
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
 		prompt := getPrefixedEnv([]string{"VOXINPUT"}, "PROMPT", "")
 		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
+		inputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "INPUT_SAMPLE_RATE", "24000")
+		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 
@@ -112,6 +117,18 @@ Environment variables:
 		if err != nil {
 			log.Println("main: failed to parse timeout", err)
 			timeout = time.Second * 30
+		}
+
+		inputSampleRate, err := strconv.Atoi(inputSampleRateStr)
+		if err != nil {
+			log.Println("main: failed to parse input sample rate", err)
+			inputSampleRate = 24000
+		}
+
+		outputSampleRate, err := strconv.Atoi(outputSampleRateStr)
+		if err != nil {
+			log.Println("main: failed to parse output sample rate", err)
+			outputSampleRate = 24000
 		}
 
 		if len(lang) > 2 {
@@ -189,22 +206,24 @@ Environment variables:
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:        pidPath,
-					APIKey:         apiKey,
-					HTTPAPIBase:    httpApiBase,
-					WSAPIBase:      wsApiBase,
-					Lang:           lang,
-					Model:          model,
-					Timeout:        timeout,
-					UI:             ui,
-					CaptureDevice:  captureDeviceName,
-					OutputFile:     outputFile,
-					Prompt:         prompt,
-					Mode:           mode,
-					AssistantModel: assistantModel,
-					AssistantVoice: assistantVoice,
-					Instructions:   instructions,
-					EnableDotool:   enableDotool,
+					PIDPath:            pidPath,
+					APIKey:             apiKey,
+					HTTPAPIBase:        httpApiBase,
+					WSAPIBase:          wsApiBase,
+					Lang:               lang,
+					Model:              model,
+					Timeout:            timeout,
+					UI:                 ui,
+					CaptureDevice:      captureDeviceName,
+					OutputFile:         outputFile,
+					Prompt:             prompt,
+					Mode:               mode,
+					AssistantModel:     assistantModel,
+					AssistantVoice:     assistantVoice,
+					Instructions:     instructions,
+					EnableDotool:     enableDotool,
+					InputSampleRate:  inputSampleRate,
+					OutputSampleRate: outputSampleRate,
 				})
 				cancel()
 			}()

@@ -152,22 +152,24 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 type ListenConfig struct {
-	PIDPath        string
-	APIKey         string
-	HTTPAPIBase    string
-	WSAPIBase      string
-	Lang           string
-	Model          string
-	Timeout        time.Duration
-	UI             *gui.GUI
-	CaptureDevice  string
-	OutputFile     string
-	Prompt         string
-	Mode           string
-	AssistantModel string
-	AssistantVoice string
-	Instructions   string
-	EnableDotool   bool
+	PIDPath          string
+	APIKey           string
+	HTTPAPIBase      string
+	WSAPIBase        string
+	Lang             string
+	Model            string
+	Timeout          time.Duration
+	UI               *gui.GUI
+	CaptureDevice    string
+	OutputFile       string
+	Prompt           string
+	Mode             string
+	AssistantModel   string
+	AssistantVoice   string
+	Instructions     string
+	EnableDotool     bool
+	InputSampleRate  int
+	OutputSampleRate int
 }
 
 type Listener struct {
@@ -308,11 +310,23 @@ func listen(config ListenConfig) {
 		mctx.Free()
 	}()
 
+	// In assistant mode with duplex audio, use the higher of input/output sample rates
+	// Downsampling will be handled in the audio package
+	// In transcription mode, use InputSampleRate for capture only
+	sampleRate := config.InputSampleRate
+	if config.Mode == "assistant" {
+		if config.OutputSampleRate > config.InputSampleRate {
+			sampleRate = config.OutputSampleRate
+		}
+	}
+
 	streamConfig := audio.StreamConfig{
-		Format:       malgo.FormatS16,
-		Channels:     1,
-		SampleRate:   16000,
-		MalgoContext: mctx.Context,
+		Format:           malgo.FormatS16,
+		Channels:         1,
+		SampleRate:       sampleRate,
+		InputSampleRate:  config.InputSampleRate,
+		OutputSampleRate: config.OutputSampleRate,
+		MalgoContext:     mctx.Context,
 	}
 
 	captureDeviceName := config.CaptureDevice

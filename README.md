@@ -78,6 +78,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
 - `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
 - `VOXINPUT_MODE`: Realtime mode (transcription|assistant, default: transcription).
+- `VOXINPUT_INPUT_SAMPLE_RATE`: Sample rate for audio input in Hz (default: 24000). Used for capturing audio and for realtime API input.
+- `VOXINPUT_OUTPUT_SAMPLE_RATE`: Sample rate for audio output in Hz (default: 24000). Used for realtime API output and audio playback.
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
 
 **Warning**: Assistant mode is WIP and you may need a particular version of LocalAI's realtime API to run it because I am developing both in lockstep. Eventually though it should be compatible with at least OpenAI or LocalAI.
