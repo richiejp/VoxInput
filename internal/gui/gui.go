@@ -18,6 +18,7 @@ type ShowSpeechSubmittedMsg struct{}
 type ShowGeneratingResponseMsg struct{}
 type ShowFunctionCallMsg struct {
 	FunctionName string
+	Arguments    string
 }
 type HideMsg struct{}
 type ShowStoppingMsg struct{}
@@ -76,7 +77,11 @@ func (g *GUI) Run() {
 				text = "Generating response..."
 				image = "audio-speakers"
 			case *ShowFunctionCallMsg:
-				text = "Calling function " + msg.(*ShowFunctionCallMsg).FunctionName + "..."
+				funcMsg := msg.(*ShowFunctionCallMsg)
+				text = "Calling " + funcMsg.FunctionName
+				if funcMsg.Arguments != "" {
+					text += " with: " + funcMsg.Arguments
+				}
 				image = "applications-system"
 			case *HideMsg:
 				continue
