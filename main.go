@@ -62,7 +62,7 @@ Environment variables:
   VOXINPUT_BASE_URL or OPENAI_BASE_URL - HTTP API base URL (default: http://localhost:8080/v1)
   VOXINPUT_WS_BASE_URL or OPENAI_WS_BASE_URL - WebSocket API base URL (default: ws://localhost:8080/v1/realtime)
   VOXINPUT_LANG or LANG - Language code for transcription (default: none)
-  VOXINPUT_TRANSCRIPTION_MODEL or TRANSCRIPTION_MODEL - Transcription model (default: whisper-1)
+  VOXINPUT_TRANSCRIPTION_MODEL or TRANSCRIPTION_MODEL - Transcription model (default: none)
   VOXINPUT_ASSISTANT_MODEL or ASSISTANT_MODEL - Assistant model (default: gpt-realtime)
   VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: none)
 	VOXINPUT_ASSISTANT_INSTRUCTIONS - System prompt for the assistant model (default: none)
@@ -98,7 +98,7 @@ Environment variables:
 		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
 		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
-		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "whisper-1")
+		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "")
 		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "gpt-realtime")
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		instructions := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_INSTRUCTIONS", "")
@@ -129,10 +129,6 @@ Environment variables:
 		if err != nil {
 			log.Println("main: failed to parse output sample rate", err)
 			outputSampleRate = 24000
-		}
-
-		if len(lang) > 2 {
-			lang = lang[:2]
 		}
 
 		if lang != "" {
