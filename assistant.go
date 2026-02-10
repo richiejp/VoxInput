@@ -67,6 +67,11 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 						Format: &openairt.AudioFormatUnion{
 							PCM: &openairt.AudioFormatPCM{Rate: l.config.InputSampleRate},
 						},
+						Transcription: &openairt.AudioTranscription{
+							Model:    l.config.Model,
+							Language: l.config.Lang,
+							Prompt:   l.config.Prompt,
+						},
 						TurnDetection: &openairt.TurnDetectionUnion{
 							ServerVad: &openairt.ServerVad{},
 						},
@@ -118,6 +123,9 @@ func (l *Listener) ReceiveAssistantMessages() {
 		case openairt.ServerEventTypeResponseCreated:
 			log.Println("Listener.ReceiveAssistantMessages: generating response")
 			l.config.UI.Chan <- &gui.ShowGeneratingResponseMsg{}
+		case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
+			transcript := msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
+			log.Printf("Listener.ReceiveAssistantMessages: user said: %s", transcript)
 		case openairt.ServerEventTypeResponseOutputAudioDelta:
 			delta := msg.(openairt.ResponseOutputAudioDeltaEvent)
 			b, err := base64.StdEncoding.DecodeString(delta.Delta)
