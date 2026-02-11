@@ -67,7 +67,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 
 - `OPENAI_API_KEY` or `VOXINPUT_API_KEY`: Your OpenAI API key for Whisper transcription. If you have a local instance with no key, then just leave it unset.
 - `OPENAI_BASE_URL` or `VOXINPUT_BASE_URL`: The base URL of the OpenAI compatible API server: defaults to `http://localhost:8080/v1`
-- `VOXINPUT_LANG` or `LANG`: Language code for transcription (defaults to empty).
+- `VOXINPUT_LANG`: Language code for transcription. The full string is used as-is (defaults to empty).
+- `LANG`: Language code for transcription. Only the first 2 characters are used (defaults to empty). `VOXINPUT_LANG` takes precedence if set.
 - `VOXINPUT_TRANSCRIPTION_MODEL`: Transcription model (default: `whisper-1`).
 - `VOXINPUT_ASSISTANT_MODEL`: Assistant model (default: `none`).
 - `VOXINPUT_ASSISTANT_VOICE`: Assistant voice (default: `alloy`).
