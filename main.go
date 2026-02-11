@@ -61,7 +61,8 @@ Environment variables:
   VOXINPUT_API_KEY or OPENAI_API_KEY - OpenAI API key (default: sk-xxx)
   VOXINPUT_BASE_URL or OPENAI_BASE_URL - HTTP API base URL (default: http://localhost:8080/v1)
   VOXINPUT_WS_BASE_URL or OPENAI_WS_BASE_URL - WebSocket API base URL (default: ws://localhost:8080/v1/realtime)
-  VOXINPUT_LANG or LANG - Language code for transcription (default: none)
+  VOXINPUT_LANG - Language code for transcription (full string used as-is, default: none)
+  LANG - Language code for transcription (only first 2 characters used, default: none)
   VOXINPUT_TRANSCRIPTION_MODEL or TRANSCRIPTION_MODEL - Transcription model (default: none)
   VOXINPUT_ASSISTANT_MODEL or ASSISTANT_MODEL - Assistant model (default: gpt-realtime)
   VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: none)
@@ -97,7 +98,15 @@ Environment variables:
 		apiKey := getOpenaiEnv("API_KEY", "sk-xxx")
 		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
-		lang := getPrefixedEnv([]string{"VOXINPUT", ""}, "LANG", "")
+		
+		// VOXINPUT_LANG takes precedence and is used as-is to allow setting language names that diverge from OpenAI's for e.g. Qwen ASR uses names like "English"
+		// LANG is truncated to first 2 characters which matches OpenAI's use of language codes (I hope)
+		lang := os.Getenv("VOXINPUT_LANG")
+		if lang == "" {
+			if langEnv := os.Getenv("LANG"); langEnv != "" && len(langEnv) >= 2 {
+				lang = langEnv[:2]
+			}
+		}
 		model := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_MODEL", "")
 		assistantModel := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_MODEL", "gpt-realtime")
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
