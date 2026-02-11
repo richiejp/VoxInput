@@ -2,6 +2,8 @@
 
 Transcribe input from your microphone and turn it into key presses on a virtual keyboard. This allows you to use speech-to-text on any application or window system in Linux. In fact you can use it on the system console.
 
+With assistant mode you can take this a step further and control you desktop entirely with voice!
+
 <p align="center">
   <img src="https://github.com/user-attachments/assets/c3cc5a16-b346-4b01-ae8e-fdbcfb1920f3" alt="VoxInput Logo" width="400">
 </p>
@@ -16,8 +18,8 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool).
 - **Voice Activity Detection**: In realtime mode VoxInput uses VAD to detect speech segments and automatically transcribe them.
 - **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
-
-[![Usage and Installation video](https://i.ytimg.com/vi/bbZ_9-Uzp78/hqdefault.jpg)](https://youtu.be/bbZ_9-Uzp78)
+- **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses.
+- **Desktop Control**: In assistant mode, the LLM can execute keyboard and mouse commands through function calls to control your desktop environment.
 
 ## Requirements
 
@@ -212,79 +214,133 @@ To create a transcript of an online meeting or video stream by capturing system 
 
 ### Assistant Mode
 
-Assistant mode enables voice conversations with an LLM that can perform actions on your desktop using the `dotool` function.
+Assistant mode enables real-time voice conversations with an LLM using the OpenAI Realtime API. The assistant can respond with voice and optionally perform desktop actions through the `dotool` function.
+
+#### Demo Videos
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=wr5eF2Qz9Dk">
+    <img src="https://img.youtube.com/vi/wr5eF2Qz9Dk/maxresdefault.jpg" alt="Assistant Mode Demo" width="400">
+  </a>
+  <br>
+  <em>Voice assistant opening applications and controlling desktop</em>
+</p>
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=_k0IwkxQLNQ">
+    <img src="https://img.youtube.com/vi/_k0IwkxQLNQ/maxresdefault.jpg" alt="Transcription Demo" width="400">
+  </a>
+  <br>
+  <em>Real-time transcription with voice activity detection</em>
+</p>
+
+#### How It Works
+
+When you start VoxInput in assistant mode:
+
+1. **Start recording**: Use `./voxinput record` to begin a conversation
+2. **Speak naturally**: The assistant uses server-side Voice Activity Detection (VAD) to detect when you're speaking
+3. **Get responses**: The assistant responds with voice audio streamed back to you
+4. **Desktop actions**: When configured with the `dotool` function, the assistant can execute keyboard and mouse commands
+5. **Continue or stop**: Keep talking for a back-and-forth conversation, or use `./voxinput stop` to end
+
+The assistant receives your speech in real-time, transcribes it automatically, generates a response using the configured LLM, and speaks the response back to you - all while optionally executing desktop commands when appropriate.
 
 #### Configuring Assistant Instructions
 
-The `VOXINPUT_ASSISTANT_INSTRUCTIONS` or `ASSISTANT_INSTRUCTIONS` environment variable configures the assistant's behavior and available actions. This system prompt should:
+The `VOXINPUT_ASSISTANT_INSTRUCTIONS` or `ASSISTANT_INSTRUCTIONS` environment variable configures the assistant's behavior. This system prompt should:
 
-1. **Describe the assistant's role and personality**
-2. **Explain available actions using dotool commands**
-3. **Provide examples of how to chain commands together to perform actions using the keyboard**
+1. **Define the assistant's role and personality**
+2. **Describe available desktop actions** (when dotool is enabled)
+3. **Provide guidance on when and how to use actions**
 
-#### dotool Function
+Example instructions:
 
-When enabled (default), the assistant has access to a `dotool` function that accepts an array of commands. These commands support:
+```bash
+export VOXINPUT_ASSISTANT_INSTRUCTIONS="You are a desktop voice assistant. Be concise and conversational - avoid markdown or complex punctuation in speech. When asked to type or transcribe, use the dotool function with type commands. To open applications, use: key super+d, sleep 1000, type <appname>, sleep 1000, key enter. Always use lowercase for application names."
+```
 
-- **Keyboard actions**: `key`, `keydown`, `keyup`, `type`
-- **Mouse actions**: `click`, `buttondown`, `buttonup`, `wheel`, `hwheel`, `mouseto`, `mousemove`
-- **Timing actions**: `keydelay`, `keyhold`, `typedelay`, `typehold`
-- **Sleep**: `sleep <milliseconds>` - handled by VoxInput between sending commands to dotool
+#### The dotool Function
 
-See the [dotool documentation](https://git.sr.ht/~geb/dotool) for complete details on available actions.
+When enabled (default: `yes`), the assistant can call a `dotool` function that executes an array of commands sequentially. Each command is a JSON object with:
 
-#### Chaining Commands
+- `action`: The dotool command to perform
+- `args`: Arguments for that command
 
-Commands are executed sequentially. Use `sleep` to add delays between actions:
+**Supported Actions:**
+
+- **Keyboard**: `key`, `keydown`, `keyup`, `type`
+- **Mouse**: `click`, `buttondown`, `buttonup`, `wheel`, `hwheel`, `mouseto`, `mousemove`
+- **Timing**: `keydelay`, `keyhold`, `typedelay`, `typehold`
+- **Sleep**: `sleep <milliseconds>` - pauses between commands (handled by VoxInput, not sent to dotool)
+
+See the [dotool documentation](https://git.sr.ht/~geb/dotool) for complete command details.
+
+**Example function call from the assistant:**
 
 ```json
 {
   "commands": [
-    "key super+d",
-    "sleep 1000",
-    "type firefox",
-    "sleep 1000",
-    "key enter"
+    {"action": "key", "args": "super+d"},
+    {"action": "sleep", "args": "1000"},
+    {"action": "type", "args": "firefox"},
+    {"action": "sleep", "args": "1000"},
+    {"action": "key", "args": "enter"}
   ]
 }
 ```
 
-#### Example Assistant Instructions
-
-The following works with Qwen3-4b and my Sway desktop setup where `super+d` opens the application launcher.
-
-```bash
-export VOXINPUT_ASSISTANT_INSTRUCTIONS="You are a desktop voice assistant. Be very concise and never use Markdown or punctuation that can not be converted to speech unless it is the argument to a tool call. When the user asks you to write or transcribe something use dotool with a type command. If the user wants to open an application then use dotool with: key super+d, sleep 1000, type <appname>, sleep 1000, key enter. Use lowercase for application names."
-```
-
 #### Running Assistant Mode
+
+**Basic setup:**
 
 ```bash
 export OPENAI_BASE_URL=http://ai.local:8081/v1
 export OPENAI_WS_BASE_URL=ws://ai.local:8081/v1/realtime
 export VOXINPUT_TRANSCRIPTION_MODEL=whisper-large-turbo
 export VOXINPUT_MODE=assistant
-export VOXINPUT_ASSISTANT_INSTRUCTIONS="You are a desktop voice assistant..."
+export VOXINPUT_ASSISTANT_MODEL=qwen3-4b
+export VOXINPUT_ASSISTANT_VOICE=alloy
+export VOXINPUT_ASSISTANT_INSTRUCTIONS="You are a helpful desktop assistant..."
 
 ./voxinput listen
 ```
 
-Then use `./voxinput record` to start a voice conversation. The assistant will respond with voice and can execute dotool commands when appropriate.
+**Then interact:**
+
+```bash
+# Start conversation
+./voxinput record
+
+# Speak: "Open Firefox and search for VoxInput"
+# Assistant responds with voice and executes commands
+
+# Stop when done
+./voxinput stop
+```
 
 #### Disabling dotool Function
 
-To disable the dotool function (assistant will only respond with voice):
+To run the assistant in voice-only mode without desktop control:
 
 ```bash
+# Option 1: Command line flag
 ./voxinput listen --mode assistant --no-dotool
-```
 
-or:
-
-```bash
+# Option 2: Environment variable
 export VOXINPUT_ASSISTANT_ENABLE_DOTOOL=no
 ./voxinput listen --mode assistant
 ```
+
+#### Configuration Options
+
+- `VOXINPUT_MODE=assistant` - Enable assistant mode
+- `VOXINPUT_ASSISTANT_MODEL` - LLM model to use (default: `none` - uses server default)
+- `VOXINPUT_ASSISTANT_VOICE` - TTS voice (default: `alloy`)
+- `VOXINPUT_ASSISTANT_INSTRUCTIONS` - System prompt for the assistant
+- `VOXINPUT_ASSISTANT_ENABLE_DOTOOL` - Enable/disable desktop control (default: `yes`)
+- `VOXINPUT_INPUT_SAMPLE_RATE` - Audio input sample rate (default: `24000`)
+- `VOXINPUT_OUTPUT_SAMPLE_RATE` - Audio output sample rate (default: `24000`)
 
 ### Quick start with LocalAI
 
