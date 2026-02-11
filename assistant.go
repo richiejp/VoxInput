@@ -16,11 +16,21 @@ import (
 	"time"
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
+	"github.com/invopop/jsonschema"
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 )
 
 const functionNameDotool = "dotool"
+
+type dotoolCommand struct {
+	Action string `json:"action" jsonschema:"required,description=The dotool action to perform,enum=key,enum=keydown,enum=keyup,enum=type,enum=click,enum=buttondown,enum=buttonup,enum=wheel,enum=hwheel,enum=mouseto,enum=mousemove,enum=keydelay,enum=keyhold,enum=typedelay,enum=typehold,enum=sleep"`
+	Args   string `json:"args" jsonschema:"required,description=Arguments for the action"`
+}
+
+type dotoolParameters struct {
+	Commands []dotoolCommand `json:"commands" jsonschema:"required,description=List of dotool commands to execute sequentially"`
+}
 
 func (l *Listener) startAssistantSession(ctx context.Context) error {
 	voice := openairt.Voice("")
@@ -30,25 +40,25 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 
 	var tools []openairt.ToolUnion
 	if l.config.EnableDotool {
+		reflector := jsonschema.Reflector{}
+		schema := reflector.Reflect(&dotoolParameters{})
+		
+		schemaJSON, err := json.MarshalIndent(schema, "", "  ")
+		if err != nil {
+			log.Printf("Failed to marshal schema: %v", err)
+		} else {
+			log.Printf("Generated schema:\n%s", schemaJSON)
+		}
+		
+		// Ensure type is set to "object" for OpenAI compatibility
+		schema.Type = "object"
+
 		tools = []openairt.ToolUnion{
 			{
 				Function: &openairt.ToolFunction{
 					Name:        functionNameDotool,
 					Description: "Execute dotool commands to control keyboard and mouse. Supports keyboard actions (key, keydown, keyup, type), mouse actions (click, buttondown, buttonup, wheel, hwheel, mouseto, mousemove), timing actions (keydelay, keyhold, typedelay, typehold), and sleep. Sleep takes milliseconds as argument.",
-					Parameters: `{
-						"type": "object",
-						"properties": {
-							"commands": {
-								"type": "array",
-								"description": "List of dotool commands to execute sequentially",
-								"items": {
-									"type": "string",
-									"pattern": "^(key|keydown|keyup|type|click|buttondown|buttonup|wheel|hwheel|mouseto|mousemove|keydelay|keyhold|typedelay|typehold|sleep)\\s+.+$"
-								}
-							}
-						},
-						"required": ["commands"]
-					}`,
+					Parameters:  schema,
 				},
 			},
 		}
@@ -60,7 +70,6 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 		},
 		Session: openairt.SessionUnion{
 			Realtime: &openairt.RealtimeSession{
-				OutputModalities: []openairt.Modality{openairt.ModalityText, openairt.ModalityAudio},
 				Instructions:     l.config.Instructions,
 				Audio: &openairt.RealtimeSessionAudio{
 					Input: &openairt.SessionAudioInput{
@@ -146,9 +155,7 @@ func (l *Listener) ReceiveAssistantMessages() {
 				Arguments:    event.Arguments,
 			}
 			if event.Name == functionNameDotool {
-				var args struct {
-					Commands []string `json:"commands"`
-				}
+				var args dotoolParameters
 				if err := json.Unmarshal([]byte(event.Arguments), &args); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error unmarshalling function arguments: ", err)
 					continue
@@ -169,7 +176,7 @@ func (l *Listener) ReceiveAssistantMessages() {
 	}
 }
 
-func (l *Listener) executeDotoolCommands(commands []string) error {
+func (l *Listener) executeDotoolCommands(commands []dotoolCommand) error {
 	log.Printf("Listener.executeDotoolCommands: executing %d commands", len(commands))
 	dotool := exec.CommandContext(l.ctx, "dotool")
 	stdin, err := dotool.StdinPipe()
@@ -182,18 +189,10 @@ func (l *Listener) executeDotoolCommands(commands []string) error {
 	}
 
 	for i, cmd := range commands {
-		log.Printf("Listener.executeDotoolCommands: [%d/%d] %s", i+1, len(commands), cmd)
-		parts := strings.SplitN(cmd, " ", 2)
-		if len(parts) == 0 {
-			continue
-		}
+		log.Printf("Listener.executeDotoolCommands: [%d/%d] %s %s", i+1, len(commands), cmd.Action, cmd.Args)
 
-		action := parts[0]
-		if action == "sleep" {
-			if len(parts) < 2 {
-				return fmt.Errorf("sleep command requires milliseconds argument")
-			}
-			ms, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if cmd.Action == "sleep" {
+			ms, err := strconv.Atoi(strings.TrimSpace(cmd.Args))
 			if err != nil {
 				return fmt.Errorf("invalid sleep duration: %w", err)
 			}
@@ -201,7 +200,11 @@ func (l *Listener) executeDotoolCommands(commands []string) error {
 			continue
 		}
 
-		_, err = io.WriteString(stdin, cmd+"\n")
+		cmdLine := cmd.Action
+		if cmd.Args != "" {
+			cmdLine += " " + cmd.Args
+		}
+		_, err = io.WriteString(stdin, cmdLine+"\n")
 		if err != nil {
 			return fmt.Errorf("dotool stdin WriteString: %w", err)
 		}
