@@ -40,6 +40,8 @@ func (config StreamConfig) asDeviceConfig(deviceType malgo.DeviceType) malgo.Dev
 	if config.CaptureDeviceID != nil && (deviceType == malgo.Capture || deviceType == malgo.Duplex) {
 		deviceConfig.Capture.DeviceID = config.CaptureDeviceID.Pointer()
 	}
+	// deviceConfig.PeriodSizeInMilliseconds = 100
+	// deviceConfig.Periods = 4
 	return deviceConfig
 }
 

@@ -197,10 +197,10 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 		rtCli:        rtCli,
 		statePath:    statePath,
 		errCh:        make(chan error, 1),
-		audioChunks:  make(chan *bytes.Buffer, 10),
+		audioChunks:  make(chan *bytes.Buffer, 1024),
 	}
 	l.chunkWriter = newChunkWriter(l.ctx, l.audioChunks)
-	l.audioPlayChunks = make(chan *bytes.Buffer, 10)
+	l.audioPlayChunks = make(chan *bytes.Buffer, 1024)
 	l.playReader = newChunkReader(l.ctx, l.audioPlayChunks)
 
 	return l
