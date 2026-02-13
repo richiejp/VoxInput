@@ -152,24 +152,26 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 }
 
 type ListenConfig struct {
-	PIDPath          string
-	APIKey           string
-	HTTPAPIBase      string
-	WSAPIBase        string
-	Lang             string
-	Model            string
-	Timeout          time.Duration
-	UI               *gui.GUI
-	CaptureDevice    string
-	OutputFile       string
-	Prompt           string
-	Mode             string
-	AssistantModel   string
-	AssistantVoice   string
-	Instructions     string
-	EnableDotool     bool
-	InputSampleRate  int
-	OutputSampleRate int
+	PIDPath           string
+	APIKey            string
+	HTTPAPIBase       string
+	WSAPIBase         string
+	Lang              string
+	Model             string
+	Timeout           time.Duration
+	UI                *gui.GUI
+	CaptureDevice     string
+	OutputFile        string
+	Prompt            string
+	Mode              string
+	AssistantModel    string
+	AssistantVoice    string
+	Instructions      string
+	EnableDotool      bool
+	ScreenshotCommand string
+	ScreenshotFile    string
+	InputSampleRate   int
+	OutputSampleRate  int
 }
 
 type Listener struct {

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 )
 
 const functionNameDotool = "dotool"
+const functionNameTakeScreenshot = "take_screenshot"
 
 type dotoolCommand struct {
 	Action string `json:"action" jsonschema:"required,description=The dotool action to perform,enum=key,enum=keydown,enum=keyup,enum=type,enum=click,enum=buttondown,enum=buttonup,enum=wheel,enum=hwheel,enum=mouseto,enum=mousemove,enum=keydelay,enum=keyhold,enum=typedelay,enum=typehold,enum=sleep"`
@@ -50,18 +52,25 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 			log.Printf("Generated schema:\n%s", schemaJSON)
 		}
 		
-		// Ensure type is set to "object" for OpenAI compatibility
 		schema.Type = "object"
 
-		tools = []openairt.ToolUnion{
-			{
-				Function: &openairt.ToolFunction{
-					Name:        functionNameDotool,
-					Description: "Execute dotool commands to control keyboard and mouse. Supports keyboard actions (key, keydown, keyup, type), mouse actions (click, buttondown, buttonup, wheel, hwheel, mouseto, mousemove), timing actions (keydelay, keyhold, typedelay, typehold), and sleep. Sleep takes milliseconds as argument.",
-					Parameters:  schema,
-				},
+		tools = append(tools, openairt.ToolUnion{
+			Function: &openairt.ToolFunction{
+				Name:        functionNameDotool,
+				Description: "Execute dotool commands to control keyboard and mouse. Supports keyboard actions (key, keydown, keyup, type), mouse actions (click, buttondown, buttonup, wheel, hwheel, mouseto, mousemove), timing actions (keydelay, keyhold, typedelay, typehold), and sleep. Sleep takes milliseconds as argument.",
+				Parameters:  schema,
 			},
-		}
+		})
+	}
+
+	if l.config.ScreenshotCommand != "" && l.config.ScreenshotFile != "" {
+		tools = append(tools, openairt.ToolUnion{
+			Function: &openairt.ToolFunction{
+				Name:        functionNameTakeScreenshot,
+				Description: "Take a screenshot of the desktop. The screenshot will be added to the conversation as an image.",
+				Parameters:  &jsonschema.Schema{Type: "object"},
+			},
+		})
 	}
 
 	return l.conn.SendMessage(ctx, openairt.SessionUpdateEvent{
@@ -154,7 +163,8 @@ func (l *Listener) ReceiveAssistantMessages() {
 				FunctionName: event.Name,
 				Arguments:    event.Arguments,
 			}
-			if event.Name == functionNameDotool {
+			switch event.Name {
+			case functionNameDotool:
 				var args dotoolParameters
 				if err := json.Unmarshal([]byte(event.Arguments), &args); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error unmarshalling function arguments: ", err)
@@ -163,6 +173,11 @@ func (l *Listener) ReceiveAssistantMessages() {
 
 				if err := l.executeDotoolCommands(args.Commands); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error executing dotool commands: ", err)
+					continue
+				}
+			case functionNameTakeScreenshot:
+				if err := l.takeScreenshot(event.CallID); err != nil {
+					log.Println("Listener.ReceiveAssistantMessages: error taking screenshot: ", err)
 					continue
 				}
 			}
@@ -174,6 +189,71 @@ func (l *Listener) ReceiveAssistantMessages() {
 		}
 
 	}
+}
+
+func (l *Listener) takeScreenshot(callID string) error {
+	log.Println("Listener.takeScreenshot: executing screenshot command")
+
+	args := strings.Fields(l.config.ScreenshotCommand)
+	cmd := exec.CommandContext(l.ctx, args[0], args[1:]...)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("screenshot command: %w", err)
+	}
+
+	imgData, err := os.ReadFile(l.config.ScreenshotFile)
+	if err != nil {
+		return fmt.Errorf("read screenshot file: %w", err)
+	}
+
+	mimeType := http.DetectContentType(imgData)
+	if !strings.HasPrefix(mimeType, "image/") {
+		mimeType = "image/png"
+	}
+	dataURI := fmt.Sprintf("data:%s;base64,%s",
+		mimeType,
+		base64.StdEncoding.EncodeToString(imgData),
+	)
+
+	log.Printf("Listener.takeScreenshot: captured %d bytes, sending as %s", len(imgData), mimeType)
+
+	if err := l.conn.SendMessage(l.ctx, openairt.ConversationItemCreateEvent{
+		Item: openairt.MessageItemUnion{
+			FunctionCallOutput: &openairt.MessageItemFunctionCallOutput{
+				CallID: callID,
+				Output: "Screenshot captured successfully.",
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("send function call output: %w", err)
+	}
+
+	if err := l.conn.SendMessage(l.ctx, openairt.ConversationItemCreateEvent{
+		Item: openairt.MessageItemUnion{
+			User: &openairt.MessageItemUser{
+				Content: []openairt.MessageContentInput{
+					{
+						Type:     openairt.MessageContentType("input_image"),
+						ImageURL: dataURI,
+						Detail:   openairt.ImageDetailAuto,
+					},
+					{
+						Type: openairt.MessageContentTypeInputText,
+						Text: "Image is a screenshot of the desktop",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("send screenshot image: %w", err)
+	}
+
+	if err := l.conn.SendMessage(l.ctx, openairt.ResponseCreateEvent{}); err != nil {
+		return fmt.Errorf("trigger response after screenshot: %w", err)
+	}
+
+	log.Println("Listener.takeScreenshot: screenshot sent to conversation")
+	return nil
 }
 
 func (l *Listener) executeDotoolCommands(commands []dotoolCommand) error {

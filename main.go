@@ -47,6 +47,8 @@ func main() {
            --mode <transcription|assistant> (realtime only, default: transcription)
            --instructions <text> System prompt for the assistant model
            --no-dotool (assistant mode only) Disable the dotool function call
+           --screenshot-command <cmd> (assistant mode only) Command to capture a screenshot (e.g. "grim /tmp/screenshot.png")
+           --screenshot-file <path> (assistant mode only) Path where the screenshot command saves its output
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -68,6 +70,8 @@ Environment variables:
   VOXINPUT_ASSISTANT_VOICE or ASSISTANT_VOICE - Assistant voice (default: none)
 	VOXINPUT_ASSISTANT_INSTRUCTIONS - System prompt for the assistant model (default: none)
   VOXINPUT_ASSISTANT_ENABLE_WRITE_TEXT - Enable the write_text tool in assistant mode (yes/no, default: yes)
+  VOXINPUT_ASSISTANT_SCREENSHOT_COMMAND - Command to capture a screenshot, e.g. "grim -t jpeg $XDG_RUNTIME_DIR/vox-screenshot.jpeg" (default: none)
+  VOXINPUT_ASSISTANT_SCREENSHOT_FILE - Path where the screenshot command saves its file, e.g. "$XDG_RUNTIME_DIR/vox-screenshot.jpeg" (default: none)
   VOXINPUT_TRANSCRIPTION_TIMEOUT or TRANSCRIPTION_TIMEOUT - Transcription timeout (default: 30s)
   VOXINPUT_SHOW_STATUS or SHOW_STATUS - Show status notifications (yes/no, default: yes)
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
@@ -98,7 +102,7 @@ Environment variables:
 		apiKey := getOpenaiEnv("API_KEY", "sk-xxx")
 		httpApiBase := getOpenaiEnv("BASE_URL", "http://localhost:8080/v1")
 		wsApiBase := getOpenaiEnv("WS_BASE_URL", "ws://localhost:8080/v1/realtime")
-		
+
 		// VOXINPUT_LANG takes precedence and is used as-is to allow setting language names that diverge from OpenAI's for e.g. Qwen ASR uses names like "English"
 		// LANG is truncated to first 2 characters which matches OpenAI's use of language codes (I hope)
 		lang := os.Getenv("VOXINPUT_LANG")
@@ -121,6 +125,8 @@ Environment variables:
 		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
+		screenshotCommand := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_COMMAND", "")
+		screenshotFile := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_FILE", "")
 
 		timeout, err := time.ParseDuration(timeoutStr)
 		if err != nil {
@@ -205,30 +211,48 @@ Environment variables:
 			instructions = instructionsArg
 		}
 
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--screenshot-command" && i+1 < len(os.Args) {
+				screenshotCommand = os.Args[i+1]
+				break
+			}
+		}
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--screenshot-file" && i+1 < len(os.Args) {
+				screenshotFile = os.Args[i+1]
+				break
+			}
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:          pidPath,
-					APIKey:           apiKey,
-					HTTPAPIBase:      httpApiBase,
-					WSAPIBase:        wsApiBase,
-					Lang:             lang,
-					Model:            model,
-					Timeout:          timeout,
-					UI:               ui,
-					CaptureDevice:    captureDeviceName,
-					OutputFile:       outputFile,
-					Prompt:           prompt,
-					Mode:             mode,
-					AssistantModel:   assistantModel,
-					AssistantVoice:   assistantVoice,
-					Instructions:     instructions,
-					EnableDotool:     enableDotool,
-					InputSampleRate:  inputSampleRate,
-					OutputSampleRate: outputSampleRate,
+					PIDPath:           pidPath,
+					APIKey:            apiKey,
+					HTTPAPIBase:       httpApiBase,
+					WSAPIBase:         wsApiBase,
+					Lang:              lang,
+					Model:             model,
+					Timeout:           timeout,
+					UI:                ui,
+					CaptureDevice:     captureDeviceName,
+					OutputFile:        outputFile,
+					Prompt:            prompt,
+					Mode:              mode,
+					AssistantModel:    assistantModel,
+					AssistantVoice:    assistantVoice,
+					Instructions:      instructions,
+					EnableDotool:      enableDotool,
+					ScreenshotCommand: screenshotCommand,
+					ScreenshotFile:    screenshotFile,
+					InputSampleRate:   inputSampleRate,
+					OutputSampleRate:  outputSampleRate,
 				})
 				cancel()
 			}()
