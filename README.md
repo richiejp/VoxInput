@@ -20,6 +20,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
 - **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses.
 - **Desktop Control**: In assistant mode, the LLM can execute keyboard and mouse commands through function calls to control your desktop environment.
+- **Screenshot Capture**: In assistant mode, the LLM can request a screenshot of your desktop to provide visual context for its responses.
 
 ## Requirements
 
@@ -76,6 +77,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_ASSISTANT_VOICE`: Assistant voice (default: `alloy`).
 - `VOXINPUT_ASSISTANT_INSTRUCTIONS` or `ASSISTANT_INSTRUCTIONS`: System prompt for the assistant model. Used to configure assistant behavior and available actions.
 - `VOXINPUT_ASSISTANT_ENABLE_DOTOOL`: Enable the dotool function in assistant mode (yes/no, default: yes).
+- `VOXINPUT_ASSISTANT_SCREENSHOT_COMMAND`: Command to capture a screenshot, e.g. `grim /tmp/screenshot.png` (default: none).
+- `VOXINPUT_ASSISTANT_SCREENSHOT_FILE`: Path where the screenshot command saves its file (default: none). When both screenshot options are set, a `take_screenshot` tool becomes available to the assistant.
 - `VOXINPUT_TRANSCRIPTION_TIMEOUT`: Timeout duration (default: `30s`).
 - `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
@@ -98,6 +101,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--mode <transcription|assistant>`: Realtime mode (default: transcription)
   - `--instructions <text>`: System prompt for the assistant model
   - `--no-dotool`: (assistant mode only) Disable the dotool function call
+  - `--screenshot-command <cmd>`: (assistant mode only) Command to capture a screenshot (e.g. `grim /tmp/screenshot.png`)
+  - `--screenshot-file <path>`: (assistant mode only) Path where the screenshot command saves its output
 
   ```bash
   ./voxinput listen
@@ -339,6 +344,8 @@ export VOXINPUT_ASSISTANT_ENABLE_DOTOOL=no
 - `VOXINPUT_ASSISTANT_VOICE` - TTS voice (default: `alloy`)
 - `VOXINPUT_ASSISTANT_INSTRUCTIONS` - System prompt for the assistant
 - `VOXINPUT_ASSISTANT_ENABLE_DOTOOL` - Enable/disable desktop control (default: `yes`)
+- `VOXINPUT_ASSISTANT_SCREENSHOT_COMMAND` - Command to capture a screenshot (default: none)
+- `VOXINPUT_ASSISTANT_SCREENSHOT_FILE` - Path to the screenshot file (default: none)
 - `VOXINPUT_INPUT_SAMPLE_RATE` - Audio input sample rate (default: `24000`)
 - `VOXINPUT_OUTPUT_SAMPLE_RATE` - Audio output sample rate (default: `24000`)
 
@@ -373,7 +380,7 @@ The realtime mode has a UI to display various actions being taken by VoxInput. H
 - [ ] Code words to start and stop transcription
 - [x] Assistant mode
    - [x] Voice conversations with an LLM
-   - [ ] Submit desktop images to a VLM to allow it to click on items
+   - [x] Submit desktop images to a VLM to allow it to click on items
    - [x] Use tool calls or MCP to allow the VLM/LLM to perform actions
       - [x] Dotool tool that allows the agent to make key presses
       - [ ] MCP
