@@ -17,7 +17,7 @@ import (
 	"time"
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
-	"github.com/invopop/jsonschema"
+	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 )
@@ -26,12 +26,12 @@ const functionNameDotool = "dotool"
 const functionNameTakeScreenshot = "take_screenshot"
 
 type dotoolCommand struct {
-	Action string `json:"action" jsonschema:"required,description=The dotool action to perform,enum=key,enum=keydown,enum=keyup,enum=type,enum=click,enum=buttondown,enum=buttonup,enum=wheel,enum=hwheel,enum=mouseto,enum=mousemove,enum=keydelay,enum=keyhold,enum=typedelay,enum=typehold,enum=sleep"`
-	Args   string `json:"args" jsonschema:"required,description=Arguments for the action"`
+	Action string `json:"action" required:"true" description:"The dotool action to perform" enum:"key,keydown,keyup,type,click,buttondown,buttonup,wheel,hwheel,mouseto,mousemove,keydelay,keyhold,typedelay,typehold,sleep"`
+	Args   string `json:"args" required:"true" description:"Arguments for the action"`
 }
 
 type dotoolParameters struct {
-	Commands []dotoolCommand `json:"commands" jsonschema:"required,description=List of dotool commands to execute sequentially"`
+	Commands []dotoolCommand `json:"commands" required:"true" description:"List of dotool commands to execute sequentially"`
 }
 
 func (l *Listener) startAssistantSession(ctx context.Context) error {
@@ -42,17 +42,17 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 
 	var tools []openairt.ToolUnion
 	if l.config.EnableDotool {
-		reflector := jsonschema.Reflector{}
-		schema := reflector.Reflect(&dotoolParameters{})
-		
+		schema, err := jsonschema.GenerateSchemaForType(dotoolParameters{})
+		if err != nil {
+			return fmt.Errorf("generate dotool schema: %w", err)
+		}
+
 		schemaJSON, err := json.MarshalIndent(schema, "", "  ")
 		if err != nil {
 			log.Printf("Failed to marshal schema: %v", err)
 		} else {
 			log.Printf("Generated schema:\n%s", schemaJSON)
 		}
-		
-		schema.Type = "object"
 
 		tools = append(tools, openairt.ToolUnion{
 			Function: &openairt.ToolFunction{
@@ -68,7 +68,6 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 			Function: &openairt.ToolFunction{
 				Name:        functionNameTakeScreenshot,
 				Description: "Take a screenshot of the desktop. The screenshot will be added to the conversation as an image.",
-				Parameters:  &jsonschema.Schema{Type: "object"},
 			},
 		})
 	}
