@@ -170,7 +170,7 @@ func (l *Listener) ReceiveAssistantMessages() {
 					continue
 				}
 
-				if err := l.executeDotoolCommands(args.Commands); err != nil {
+				if err := l.executeDotoolCommands(args.Commands, event.CallID); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error executing dotool commands: ", err)
 					continue
 				}
@@ -255,7 +255,7 @@ func (l *Listener) takeScreenshot(callID string) error {
 	return nil
 }
 
-func (l *Listener) executeDotoolCommands(commands []dotoolCommand) error {
+func (l *Listener) executeDotoolCommands(commands []dotoolCommand, callID string) error {
 	log.Printf("Listener.executeDotoolCommands: executing %d commands", len(commands))
 	dotool := exec.CommandContext(l.ctx, "dotool")
 	stdin, err := dotool.StdinPipe()
@@ -299,5 +299,17 @@ func (l *Listener) executeDotoolCommands(commands []dotoolCommand) error {
 		return fmt.Errorf("dotool wait: %w", err)
 	}
 	log.Println("Listener.executeDotoolCommands: completed successfully")
+
+	if err := l.conn.SendMessage(l.ctx, openairt.ConversationItemCreateEvent{
+		Item: openairt.MessageItemUnion{
+			FunctionCallOutput: &openairt.MessageItemFunctionCallOutput{
+				CallID: callID,
+				Output: "Dotool commands executed successfully.",
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("send function call output: %w", err)
+	}
+
 	return nil
 }
