@@ -32,6 +32,7 @@ type dotoolCommand struct {
 
 type dotoolParameters struct {
 	Commands []dotoolCommand `json:"commands" required:"true" description:"List of dotool commands to execute sequentially"`
+	Summary  string          `json:"summary" required:"true" description:"A brief summary of what this command sequence is intended to do"`
 }
 
 func (l *Listener) startAssistantSession(ctx context.Context) error {
@@ -170,7 +171,7 @@ func (l *Listener) ReceiveAssistantMessages() {
 					continue
 				}
 
-				if err := l.executeDotoolCommands(args.Commands, event.CallID); err != nil {
+				if err := l.executeDotoolCommands(args.Commands, args.Summary, event.CallID); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error executing dotool commands: ", err)
 					continue
 				}
@@ -255,7 +256,7 @@ func (l *Listener) takeScreenshot(callID string) error {
 	return nil
 }
 
-func (l *Listener) executeDotoolCommands(commands []dotoolCommand, callID string) error {
+func (l *Listener) executeDotoolCommands(commands []dotoolCommand, summary string, callID string) error {
 	log.Printf("Listener.executeDotoolCommands: executing %d commands", len(commands))
 	dotool := exec.CommandContext(l.ctx, "dotool")
 	stdin, err := dotool.StdinPipe()
@@ -304,7 +305,7 @@ func (l *Listener) executeDotoolCommands(commands []dotoolCommand, callID string
 		Item: openairt.MessageItemUnion{
 			FunctionCallOutput: &openairt.MessageItemFunctionCallOutput{
 				CallID: callID,
-				Output: "Dotool commands executed successfully.",
+				Output: "Completed: " + summary,
 			},
 		},
 	}); err != nil {
