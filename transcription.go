@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/richiejp/VoxInput/internal/audio"
@@ -15,6 +13,15 @@ import (
 )
 
 func (l *Listener) startTranscriptionSession(ctx context.Context) error {
+	var transcription *openairt.AudioTranscription
+	if l.config.Model != "" {
+		transcription = &openairt.AudioTranscription{
+			Model:    l.config.Model,
+			Language: l.config.Lang,
+			Prompt:   l.config.Prompt,
+		}
+	}
+
 	return l.conn.SendMessage(ctx, openairt.SessionUpdateEvent{
 		EventBase: openairt.EventBase{
 			EventID: "Initial update",
@@ -23,11 +30,7 @@ func (l *Listener) startTranscriptionSession(ctx context.Context) error {
 			Transcription: &openairt.TranscriptionSession{
 				Audio: &openairt.TranscriptionSessionAudio{
 					Input: &openairt.SessionAudioInput{
-						Transcription: &openairt.AudioTranscription{
-							Model:    l.config.Model,
-							Language: l.config.Lang,
-							Prompt:   l.config.Prompt,
-						},
+						Transcription: transcription,
 						TurnDetection: &openairt.TurnDetectionUnion{
 							ServerVad: &openairt.ServerVad{},
 						},
@@ -100,35 +103,15 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 			continue
 		}
 		log.Printf("Listener.ReceiveTranscriptionMessages: typing text: %q", text)
-		dotool := exec.CommandContext(l.ctx, "dotool")
-		stdin, err := dotool.StdinPipe()
-		if err != nil {
-			l.errCh <- fmt.Errorf("dotool stdin pipe: %w", err)
-			l.cancel()
-			return
+		if l.config.InputController == nil {
+			log.Println("Listener.ReceiveTranscriptionMessages: no input controller available, cannot type text")
+			continue
 		}
-		dotool.Stderr = os.Stderr
-		if err := dotool.Start(); err != nil {
-			l.errCh <- fmt.Errorf("dotool start: %w", err)
-			l.cancel()
-			return
-		}
-		_, err = io.WriteString(stdin, fmt.Sprintf("type %s ", text))
-		if err != nil {
-			l.errCh <- fmt.Errorf("dotool stdin WriteString: %w", err)
-			l.cancel()
-			return
-		}
-		if err := stdin.Close(); err != nil {
-			l.errCh <- fmt.Errorf("close dotool stdin: %w", err)
-			l.cancel()
-			return
-		}
-		if err := dotool.Wait(); err != nil {
+		if err := l.config.InputController.TypeText(l.ctx, text); err != nil {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			l.errCh <- fmt.Errorf("dotool wait: %w", err)
+			l.errCh <- fmt.Errorf("type text: %w", err)
 			l.cancel()
 			return
 		}

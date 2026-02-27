@@ -1,8 +1,8 @@
 # VoxInput
 
-Transcribe input from your microphone and turn it into key presses on a virtual keyboard. This allows you to use speech-to-text on any application or window system in Linux. In fact you can use it on the system console.
+Transcribe input from your microphone and turn it into key presses on a virtual keyboard. This allows you to use speech-to-text on any application or window system in Linux and macOS. On Linux you can even use it on the system console.
 
-With assistant mode you can take this a step further and control you desktop entirely with voice!
+With assistant mode you can take this a step further and control your desktop entirely with voice!
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/c3cc5a16-b346-4b01-ae8e-fdbcfb1920f3" alt="VoxInput Logo" width="400">
@@ -15,7 +15,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Speech-to-Text Daemon**: Runs as a background process to listen for signals to start or stop recording audio.
 - **Audio Capture**: Records audio from the microphone or any other device, including audio you are listening to.
 - **Transcription**: Converts recorded audio into text using a local or remote transcription service.
-- **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool).
+- **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool) on Linux or CoreGraphics on macOS.
 - **Voice Activity Detection**: In realtime mode VoxInput uses VAD to detect speech segments and automatically transcribe them.
 - **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
 - **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses.
@@ -23,6 +23,12 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Screenshot Capture**: In assistant mode, the LLM can request a screenshot of your desktop to provide visual context for its responses.
 
 ## Requirements
+
+### macOS
+
+- Grant **Accessibility** permission to the terminal or application running VoxInput (System Settings > Privacy & Security > Accessibility). This is required for simulating keyboard and mouse input.
+
+### Linux
 
 - `dotool` (for simulating keyboard input)
 - The user that runs VoxInput daemon is in the `input` user group
@@ -52,7 +58,7 @@ KERNEL=="uinput", GROUP="input", MODE="0620", OPTIONS+="static_node=uinput"
    go build -o voxinput
    ```
 
-3. Ensure `dotool` is installed on your system and it can make key presses.
+3. **Linux only**: Ensure `dotool` is installed on your system and it can make key presses. On macOS, input simulation uses CoreGraphics and requires no extra tools.
 
 4. It makes sense to bind the `record` and `write` commands to keys using your window manager. For instance in my Sway config I have the following
 
@@ -86,6 +92,9 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_MODE`: Realtime mode (transcription|assistant, default: transcription).
 - `VOXINPUT_INPUT_SAMPLE_RATE`: Sample rate for audio input in Hz (default: 24000). Used for capturing audio and for realtime API input.
 - `VOXINPUT_OUTPUT_SAMPLE_RATE`: Sample rate for audio output in Hz (default: 24000). Used for realtime API output and audio playback.
+- `VOXINPUT_AEC_FILTER_MS`: AEC filter length in milliseconds (default: 200).
+- `VOXINPUT_AEC_DELAY_MS`: AEC reference delay in milliseconds to compensate for acoustic path delay between speaker and mic (default: 50). Use the dump+shift analysis test to find the optimal value for your setup.
+- `VOXINPUT_DUMP_AUDIO_DIR`: Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
 
 **Warning**: Assistant mode is WIP and you may need a particular version of LocalAI's realtime API to run it because I am developing both in lockstep. Eventually though it should be compatible with at least OpenAI or LocalAI.
@@ -103,6 +112,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--no-dotool`: (assistant mode only) Disable the dotool function call
   - `--screenshot-command <cmd>`: (assistant mode only) Command to capture a screenshot (e.g. `grim /tmp/screenshot.png`)
   - `--screenshot-file <path>`: (assistant mode only) Path where the screenshot command saves its output
+  - `--dump-audio <dir>`: (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
 
   ```bash
   ./voxinput listen

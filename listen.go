@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,14 +12,17 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/gen2brain/malgo"
 
+	"github.com/richiejp/VoxInput/internal/aec"
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
+	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
@@ -168,10 +172,15 @@ type ListenConfig struct {
 	AssistantVoice    string
 	Instructions      string
 	EnableDotool      bool
+	InputController   input.Controller
 	ScreenshotCommand string
 	ScreenshotFile    string
 	InputSampleRate   int
 	OutputSampleRate  int
+	EnableAEC         bool
+	AECFilterMs       int
+	AECDelayMs        int
+	DumpAudioDir      string
 }
 
 type Listener struct {
@@ -187,23 +196,70 @@ type Listener struct {
 	statePath       string
 	audioPlayChunks chan *bytes.Buffer
 	playReader      *chunkReader
+	echoCanceller   *aec.Canceller
+	duplexOpts      *audio.DuplexOpts
 }
 
-func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string) *Listener {
+func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string, echoCanceller *aec.Canceller) *Listener {
 	ctx, cancel := context.WithCancel(context.Background())
 	l := &Listener{
-		ctx:          ctx,
-		cancel:       cancel,
-		config:       config,
-		streamConfig: streamConfig,
-		rtCli:        rtCli,
-		statePath:    statePath,
-		errCh:        make(chan error, 1),
-		audioChunks:  make(chan *bytes.Buffer, 1024),
+		ctx:           ctx,
+		cancel:        cancel,
+		config:        config,
+		streamConfig:  streamConfig,
+		rtCli:         rtCli,
+		statePath:     statePath,
+		errCh:         make(chan error, 1),
+		audioChunks:   make(chan *bytes.Buffer, 1024),
+		echoCanceller: echoCanceller,
 	}
 	l.chunkWriter = newChunkWriter(l.ctx, l.audioChunks)
 	l.audioPlayChunks = make(chan *bytes.Buffer, 1024)
 	l.playReader = newChunkReader(l.ctx, l.audioPlayChunks)
+
+	if config.DumpAudioDir != "" && config.Mode == "assistant" {
+		if err := os.MkdirAll(config.DumpAudioDir, 0o755); err != nil {
+			log.Printf("NewListener: failed to create dump dir: %v", err)
+		} else {
+			micFile, err := os.Create(filepath.Join(config.DumpAudioDir, "mic.raw"))
+			if err != nil {
+				log.Printf("NewListener: failed to create mic dump: %v", err)
+			}
+			spkFile, err := os.Create(filepath.Join(config.DumpAudioDir, "spk.raw"))
+			if err != nil {
+				log.Printf("NewListener: failed to create spk dump: %v", err)
+			}
+			aecFile, err := os.Create(filepath.Join(config.DumpAudioDir, "aec.raw"))
+			if err != nil {
+				log.Printf("NewListener: failed to create aec dump: %v", err)
+			}
+			if micFile != nil && spkFile != nil {
+				l.duplexOpts = &audio.DuplexOpts{
+					DumpInput:     micFile,
+					DumpOutput:    spkFile,
+					DumpProcessed: aecFile,
+				}
+				meta := map[string]any{
+					"sampleRate": streamConfig.SampleRate,
+					"channels":   1,
+					"format":     "s16le",
+				}
+				metaPath := filepath.Join(config.DumpAudioDir, "meta.json")
+				if metaBytes, err := json.Marshal(meta); err == nil {
+					os.WriteFile(metaPath, metaBytes, 0o644)
+				}
+				log.Printf("NewListener: dumping audio to %s", config.DumpAudioDir)
+			}
+		}
+	}
+
+	if config.AECDelayMs > 0 {
+		if l.duplexOpts == nil {
+			l.duplexOpts = &audio.DuplexOpts{}
+		}
+		l.duplexOpts.ReferenceDelayMs = config.AECDelayMs
+		log.Printf("NewListener: AEC reference delay %d ms", config.AECDelayMs)
+	}
 
 	return l
 }
@@ -295,6 +351,17 @@ func (l *Listener) Stop() {
 	log.Println("Listener.Stop: finished transcribing")
 	l.conn.Close()
 	l.cancel()
+	if l.duplexOpts != nil {
+		if c, ok := l.duplexOpts.DumpInput.(io.Closer); ok {
+			c.Close()
+		}
+		if c, ok := l.duplexOpts.DumpOutput.(io.Closer); ok {
+			c.Close()
+		}
+		if c, ok := l.duplexOpts.DumpProcessed.(io.Closer); ok {
+			c.Close()
+		}
+	}
 	if err := pid.WriteState(l.statePath, false); err != nil {
 		log.Println("Listener.Stop: failed to write idle state: ", err)
 	}
@@ -322,6 +389,7 @@ func listen(config ListenConfig) {
 		}
 	}
 
+	periodMs := 20
 	streamConfig := audio.StreamConfig{
 		Format:           malgo.FormatS16,
 		Channels:         1,
@@ -329,6 +397,7 @@ func listen(config ListenConfig) {
 		InputSampleRate:  config.InputSampleRate,
 		OutputSampleRate: config.OutputSampleRate,
 		MalgoContext:     mctx.Context,
+		PeriodMs:         periodMs,
 	}
 
 	captureDeviceName := config.CaptureDevice
@@ -341,6 +410,22 @@ func listen(config ListenConfig) {
 			log.Fatalf("Capture device not found: %s\nRun 'voxinput devices' to list available devices.", captureDeviceName)
 		}
 		log.Printf("Using capture device: %s", captureDeviceName)
+	}
+
+	var echoCanceller *aec.Canceller
+	if config.EnableAEC && config.Mode == "assistant" {
+		frameSize := sampleRate * periodMs / 1000
+		filterMs := config.AECFilterMs
+		if filterMs <= 0 {
+			filterMs = 200
+		}
+		filterLen := sampleRate * filterMs / 1000
+		var err error
+		echoCanceller, err = aec.New(frameSize, filterLen, sampleRate)
+		if err != nil {
+			log.Fatalf("listen: failed to create echo canceller: %v", err)
+		}
+		log.Printf("listen: AEC enabled (frameSize=%d, filterLen=%d (%dms), sampleRate=%d)", frameSize, filterLen, filterMs, sampleRate)
 	}
 
 	rtConf := openairt.DefaultConfig(config.APIKey)
@@ -394,7 +479,7 @@ ForListen:
 			}
 		}
 
-		l := NewListener(config, streamConfig, rtCli, statePath)
+		l := NewListener(config, streamConfig, rtCli, statePath, echoCanceller)
 		if err := l.Start(); err != nil {
 			l.cancel()
 			continue

@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
@@ -18,10 +17,11 @@ import (
 	"github.com/sashabaranov/go-openai"
 
 	"github.com/richiejp/VoxInput/internal/audio"
+	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
-func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool, timeout time.Duration) {
+func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool, timeout time.Duration, inputCtrl input.Controller) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -167,27 +167,12 @@ Listen:
 
 		log.Println("main: transcribed text: ", resp.Text)
 
-		dotool := exec.Command("dotool")
-		stdin, err := dotool.StdinPipe()
-		if err != nil {
-			log.Println("main: ", fmt.Errorf("dotool stdin pipe: %w", err))
+		if inputCtrl == nil {
+			log.Println("main: no input controller available, cannot type text")
+			continue Listen
 		}
-		dotool.Stderr = os.Stderr
-		if err := dotool.Start(); err != nil {
-			log.Println("main: ", fmt.Errorf("dotool start: %w", err))
-		}
-
-		_, err = io.WriteString(stdin, fmt.Sprintf("type %s", resp.Text))
-		if err != nil {
-			log.Println("main: ", fmt.Errorf("dotool stdin WriteString: %w", err))
-		}
-
-		if err := stdin.Close(); err != nil {
-			log.Println("main: close dotool stdin: ", err)
-		}
-
-		if err := dotool.Wait(); err != nil {
-			log.Println("main: dotool wait: ", err)
+		if err := inputCtrl.TypeText(context.Background(), resp.Text); err != nil {
+			log.Println("main: type text: ", err)
 		}
 	}
 }

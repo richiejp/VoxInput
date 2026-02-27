@@ -12,28 +12,17 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
-	"time"
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/sashabaranov/go-openai/jsonschema"
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
+	"github.com/richiejp/VoxInput/internal/input"
 )
 
-const functionNameDotool = "dotool"
+const functionNameInputControl = "input_control"
 const functionNameTakeScreenshot = "take_screenshot"
-
-type dotoolCommand struct {
-	Action string `json:"action" required:"true" description:"The dotool action to perform" enum:"key,keydown,keyup,type,click,buttondown,buttonup,wheel,hwheel,mouseto,mousemove,keydelay,keyhold,typedelay,typehold,sleep"`
-	Args   string `json:"args" required:"true" description:"Arguments for the action"`
-}
-
-type dotoolParameters struct {
-	Commands []dotoolCommand `json:"commands" required:"true" description:"List of dotool commands to execute sequentially"`
-	Summary  string          `json:"summary" required:"true" description:"A brief summary of what this command sequence is intended to do"`
-}
 
 func (l *Listener) startAssistantSession(ctx context.Context) error {
 	voice := openairt.Voice("")
@@ -43,9 +32,9 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 
 	var tools []openairt.ToolUnion
 	if l.config.EnableDotool {
-		schema, err := jsonschema.GenerateSchemaForType(dotoolParameters{})
+		schema, err := jsonschema.GenerateSchemaForType(input.CommandParameters{})
 		if err != nil {
-			return fmt.Errorf("generate dotool schema: %w", err)
+			return fmt.Errorf("generate input control schema: %w", err)
 		}
 
 		schemaJSON, err := json.MarshalIndent(schema, "", "  ")
@@ -57,20 +46,35 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 
 		tools = append(tools, openairt.ToolUnion{
 			Function: &openairt.ToolFunction{
-				Name:        functionNameDotool,
-				Description: "Execute dotool commands to control keyboard and mouse. Supports keyboard actions (key, keydown, keyup, type), mouse actions (click, buttondown, buttonup, wheel, hwheel, mouseto, mousemove), timing actions (keydelay, keyhold, typedelay, typehold), and sleep. Sleep takes milliseconds as argument.",
+				Name:        functionNameInputControl,
+				Description: "Execute input commands to control keyboard and mouse. Supports keyboard actions (key, keydown, keyup, type), mouse actions (click, buttondown, buttonup, wheel, hwheel, mouseto, mousemove), timing actions (keydelay, keyhold, typedelay, typehold), and sleep. Sleep takes milliseconds as argument.",
 				Parameters:  schema,
 			},
 		})
 	}
 
 	if l.config.ScreenshotCommand != "" && l.config.ScreenshotFile != "" {
+		screenshotSchema, err := jsonschema.GenerateSchemaForType(input.ScreenshotParameters{})
+		if err != nil {
+			return fmt.Errorf("generate screenshot schema: %w", err)
+		}
+
 		tools = append(tools, openairt.ToolUnion{
 			Function: &openairt.ToolFunction{
 				Name:        functionNameTakeScreenshot,
 				Description: "Take a screenshot of the desktop. The screenshot will be added to the conversation as an image.",
+				Parameters:  screenshotSchema,
 			},
 		})
+	}
+
+	var transcription *openairt.AudioTranscription
+	if l.config.Model != "" {
+		transcription = &openairt.AudioTranscription{
+			Model:    l.config.Model,
+			Language: l.config.Lang,
+			Prompt:   l.config.Prompt,
+		}
 	}
 
 	return l.conn.SendMessage(ctx, openairt.SessionUpdateEvent{
@@ -85,11 +89,7 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 						Format: &openairt.AudioFormatUnion{
 							PCM: &openairt.AudioFormatPCM{Rate: l.config.InputSampleRate},
 						},
-						Transcription: &openairt.AudioTranscription{
-							Model:    l.config.Model,
-							Language: l.config.Lang,
-							Prompt:   l.config.Prompt,
-						},
+						Transcription: transcription,
 						TurnDetection: &openairt.TurnDetectionUnion{
 							ServerVad: &openairt.ServerVad{},
 						},
@@ -108,7 +108,7 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 }
 
 func (l *Listener) runAudioAssistant() {
-	if err := audio.Duplex(l.ctx, l.playReader, l.chunkWriter, l.streamConfig); err != nil {
+	if err := audio.Duplex(l.ctx, l.playReader, l.chunkWriter, l.streamConfig, l.echoCanceller, l.duplexOpts); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
 			return
 		}
@@ -164,19 +164,35 @@ func (l *Listener) ReceiveAssistantMessages() {
 				Arguments:    event.Arguments,
 			}
 			switch event.Name {
-			case functionNameDotool:
-				var args dotoolParameters
+			case functionNameInputControl:
+				var args input.CommandParameters
 				if err := json.Unmarshal([]byte(event.Arguments), &args); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error unmarshalling function arguments: ", err)
 					continue
 				}
 
-				if err := l.executeDotoolCommands(args.Commands, args.Summary, event.CallID); err != nil {
-					log.Println("Listener.ReceiveAssistantMessages: error executing dotool commands: ", err)
+				if err := l.config.InputController.ExecuteCommands(l.ctx, args.Commands); err != nil {
+					log.Println("Listener.ReceiveAssistantMessages: error executing input commands: ", err)
+					continue
+				}
+
+				if err := l.conn.SendMessage(l.ctx, openairt.ConversationItemCreateEvent{
+					Item: openairt.MessageItemUnion{
+						FunctionCallOutput: &openairt.MessageItemFunctionCallOutput{
+							CallID: event.CallID,
+							Output: "Completed: " + args.Summary,
+						},
+					},
+				}); err != nil {
+					log.Println("Listener.ReceiveAssistantMessages: error sending function call output: ", err)
 					continue
 				}
 			case functionNameTakeScreenshot:
-				if err := l.takeScreenshot(event.CallID); err != nil {
+				var ssArgs input.ScreenshotParameters
+				if err := json.Unmarshal([]byte(event.Arguments), &ssArgs); err != nil {
+					log.Println("Listener.ReceiveAssistantMessages: error unmarshalling screenshot arguments: ", err)
+				}
+				if err := l.takeScreenshot(event.CallID, ssArgs.Reason); err != nil {
 					log.Println("Listener.ReceiveAssistantMessages: error taking screenshot: ", err)
 					continue
 				}
@@ -191,8 +207,8 @@ func (l *Listener) ReceiveAssistantMessages() {
 	}
 }
 
-func (l *Listener) takeScreenshot(callID string) error {
-	log.Println("Listener.takeScreenshot: executing screenshot command")
+func (l *Listener) takeScreenshot(callID string, reason string) error {
+	log.Printf("Listener.takeScreenshot: %s", reason)
 
 	args := strings.Fields(l.config.ScreenshotCommand)
 	cmd := exec.CommandContext(l.ctx, args[0], args[1:]...)
@@ -221,7 +237,7 @@ func (l *Listener) takeScreenshot(callID string) error {
 		Item: openairt.MessageItemUnion{
 			FunctionCallOutput: &openairt.MessageItemFunctionCallOutput{
 				CallID: callID,
-				Output: "Screenshot captured successfully.",
+				Output: "Screenshot captured: " + reason,
 			},
 		},
 	}); err != nil {
@@ -256,61 +272,3 @@ func (l *Listener) takeScreenshot(callID string) error {
 	return nil
 }
 
-func (l *Listener) executeDotoolCommands(commands []dotoolCommand, summary string, callID string) error {
-	log.Printf("Listener.executeDotoolCommands: executing %d commands", len(commands))
-	dotool := exec.CommandContext(l.ctx, "dotool")
-	stdin, err := dotool.StdinPipe()
-	if err != nil {
-		return fmt.Errorf("dotool stdin pipe: %w", err)
-	}
-	dotool.Stderr = os.Stderr
-	if err := dotool.Start(); err != nil {
-		return fmt.Errorf("dotool start: %w", err)
-	}
-
-	for i, cmd := range commands {
-		log.Printf("Listener.executeDotoolCommands: [%d/%d] %s %s", i+1, len(commands), cmd.Action, cmd.Args)
-
-		if cmd.Action == "sleep" {
-			ms, err := strconv.Atoi(strings.TrimSpace(cmd.Args))
-			if err != nil {
-				return fmt.Errorf("invalid sleep duration: %w", err)
-			}
-			time.Sleep(time.Duration(ms) * time.Millisecond)
-			continue
-		}
-
-		cmdLine := cmd.Action
-		if cmd.Args != "" {
-			cmdLine += " " + cmd.Args
-		}
-		_, err = io.WriteString(stdin, cmdLine+"\n")
-		if err != nil {
-			return fmt.Errorf("dotool stdin WriteString: %w", err)
-		}
-	}
-
-	if err := stdin.Close(); err != nil {
-		return fmt.Errorf("close dotool stdin: %w", err)
-	}
-	if err := dotool.Wait(); err != nil {
-		if errors.Is(err, context.Canceled) {
-			return err
-		}
-		return fmt.Errorf("dotool wait: %w", err)
-	}
-	log.Println("Listener.executeDotoolCommands: completed successfully")
-
-	if err := l.conn.SendMessage(l.ctx, openairt.ConversationItemCreateEvent{
-		Item: openairt.MessageItemUnion{
-			FunctionCallOutput: &openairt.MessageItemFunctionCallOutput{
-				CallID: callID,
-				Output: "Completed: " + summary,
-			},
-		},
-	}); err != nil {
-		return fmt.Errorf("send function call output: %w", err)
-	}
-
-	return nil
-}
