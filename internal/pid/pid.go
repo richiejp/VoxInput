@@ -16,7 +16,8 @@ func Path() (string, error) {
 			return p, nil
 		}
 	}
-	p := filepath.Join("/run/voxinput", "VoxInput.pid")
+	defaultDir := platformDefaultRuntimeDir()
+	p := filepath.Join(defaultDir, "VoxInput.pid")
 	if _, err := os.Stat(p); err == nil {
 		return p, nil
 	}
@@ -25,7 +26,7 @@ func Path() (string, error) {
 	if runtimeDir == "" {
 		runtimeDir = os.Getenv("XDG_RUNTIME_DIR")
 		if runtimeDir == "" {
-			runtimeDir = "/run/voxinput"
+			runtimeDir = defaultDir
 		}
 	}
 
@@ -72,7 +73,8 @@ func StatePath() (string, error) {
 			return p, nil
 		}
 	}
-	p := filepath.Join("/run/voxinput", "VoxInput.state")
+	defaultDir := platformDefaultRuntimeDir()
+	p := filepath.Join(defaultDir, "VoxInput.state")
 	if _, err := os.Stat(p); err == nil {
 		return p, nil
 	}
@@ -81,7 +83,7 @@ func StatePath() (string, error) {
 	if runtimeDir == "" {
 		runtimeDir = os.Getenv("XDG_RUNTIME_DIR")
 		if runtimeDir == "" {
-			runtimeDir = "/run/voxinput"
+			runtimeDir = defaultDir
 		}
 	}
 

@@ -58,36 +58,36 @@ func (g *GUI) Run() {
 
 			title := "VoxInput"
 			var text string
-			image := "audio-input-microphone"
+			image := iconPath("audio-input-microphone")
 
 			switch msg.(type) {
 			case *ShowListeningMsg:
 				text = "Listening with voice audio detection..."
-				image = "audio-input-microphone"
+				image = iconPath("audio-input-microphone")
 			case *ShowSpeechDetectedMsg:
 				text = "Detected speech..."
-				image = "audio-input-microphone"
+				image = iconPath("audio-input-microphone")
 			case *ShowTranscribingMsg:
 				text = "Transcribing..."
-				image = "text-x-generic"
+				image = iconPath("text-x-generic")
 			case *ShowSpeechSubmittedMsg:
 				text = "Speech submitted..."
-				image = "network-transmit-receive"
+				image = iconPath("network-transmit-receive")
 			case *ShowGeneratingResponseMsg:
 				text = "Generating response..."
-				image = "audio-speakers"
+				image = iconPath("audio-speakers")
 			case *ShowFunctionCallMsg:
 				funcMsg := msg.(*ShowFunctionCallMsg)
 				text = "Calling " + funcMsg.FunctionName
 				if funcMsg.Arguments != "" {
 					text += " with: " + funcMsg.Arguments
 				}
-				image = "applications-system"
+				image = iconPath("applications-system")
 			case *HideMsg:
 				continue
 			case *ShowStoppingMsg:
 				text = "Stopping listening"
-				image = "media-playback-stop"
+				image = iconPath("media-playback-stop")
 			default:
 				continue
 			}

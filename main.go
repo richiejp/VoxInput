@@ -14,6 +14,7 @@ import (
 
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
+	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/pid"
 	"github.com/richiejp/VoxInput/internal/semver"
 )
@@ -47,8 +48,11 @@ func main() {
            --mode <transcription|assistant> (realtime only, default: transcription)
            --instructions <text> System prompt for the assistant model
            --no-dotool (assistant mode only) Disable the dotool function call
+           --no-aec (assistant mode only) Disable acoustic echo cancellation
+           --aec-filter-ms <ms> (assistant mode only) AEC filter length in milliseconds (default: 500)
            --screenshot-command <cmd> (assistant mode only) Command to capture a screenshot (e.g. "grim /tmp/screenshot.png")
            --screenshot-file <path> (assistant mode only) Path where the screenshot command saves its output
+           --dump-audio <dir> (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -78,6 +82,10 @@ Environment variables:
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
+  VOXINPUT_ENABLE_AEC - Enable acoustic echo cancellation in assistant mode (yes/no, default: yes)
+  VOXINPUT_AEC_FILTER_MS - AEC filter length in milliseconds (default: 200)
+  VOXINPUT_AEC_DELAY_MS - AEC reference delay in milliseconds to compensate acoustic path delay (default: 50)
+  VOXINPUT_DUMP_AUDIO_DIR - Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
   VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
   VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
@@ -116,6 +124,7 @@ Environment variables:
 		assistantVoice := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_VOICE", "")
 		instructions := getPrefixedEnv([]string{"VOXINPUT", ""}, "ASSISTANT_INSTRUCTIONS", "")
 		enableDotoolStr := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_ENABLE_DOTOOL", "yes")
+		enableAECStr := getPrefixedEnv([]string{"VOXINPUT"}, "ENABLE_AEC", "yes")
 		timeoutStr := getPrefixedEnv([]string{"VOXINPUT", ""}, "TRANSCRIPTION_TIMEOUT", "30s")
 		showStatusText := getPrefixedEnv([]string{"VOXINPUT", ""}, "SHOW_STATUS", "yes")
 		captureDeviceName := getPrefixedEnv([]string{"VOXINPUT"}, "CAPTURE_DEVICE", "")
@@ -123,6 +132,9 @@ Environment variables:
 		outputFile := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_FILE", "")
 		inputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "INPUT_SAMPLE_RATE", "24000")
 		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
+		dumpAudioDir := getPrefixedEnv([]string{"VOXINPUT"}, "DUMP_AUDIO_DIR", "")
+		aecFilterMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_FILTER_MS", "200")
+		aecDelayMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_DELAY_MS", "50")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 		screenshotCommand := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_COMMAND", "")
@@ -146,6 +158,18 @@ Environment variables:
 			outputSampleRate = 24000
 		}
 
+		aecFilterMs, err := strconv.Atoi(aecFilterMsStr)
+		if err != nil {
+			log.Println("main: failed to parse AEC filter length", err)
+			aecFilterMs = 200
+		}
+
+		aecDelayMs, err := strconv.Atoi(aecDelayMsStr)
+		if err != nil {
+			log.Println("main: failed to parse AEC delay", err)
+			aecDelayMs = 0
+		}
+
 		if lang != "" {
 			log.Println("main: language is set to ", lang)
 		}
@@ -159,6 +183,11 @@ Environment variables:
 			enableDotoolStr = "no"
 		}
 		enableDotool := !(enableDotoolStr == "no" || enableDotoolStr == "false")
+
+		if slices.Contains(os.Args[2:], "--no-aec") {
+			enableAECStr = "no"
+		}
+		enableAEC := !(enableAECStr == "no" || enableAECStr == "false")
 
 		replay := slices.Contains(os.Args[2:], "--replay")
 		realtime := !slices.Contains(os.Args[2:], "--no-realtime")
@@ -227,6 +256,36 @@ Environment variables:
 			}
 		}
 
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--dump-audio" && i+1 < len(os.Args) {
+				dumpAudioDir = os.Args[i+1]
+				break
+			}
+		}
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--aec-filter-ms" && i+1 < len(os.Args) {
+				if v, err := strconv.Atoi(os.Args[i+1]); err == nil {
+					aecFilterMs = v
+				}
+				break
+			}
+		}
+
+		// Create input controller for keyboard/mouse simulation.
+		// Only required when we need to type text (no output file) or use input control in assistant mode.
+		var inputCtrl input.Controller
+		needsInput := outputFile == "" || enableDotool
+		if needsInput {
+			var err error
+			inputCtrl, err = input.New()
+			if err != nil {
+				log.Fatalln("main: failed to create input controller: ", err)
+			}
+		}
+
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
 			ui := gui.New(ctx, showStatus)
@@ -249,17 +308,22 @@ Environment variables:
 					AssistantVoice:    assistantVoice,
 					Instructions:      instructions,
 					EnableDotool:      enableDotool,
+					InputController:   inputCtrl,
 					ScreenshotCommand: screenshotCommand,
 					ScreenshotFile:    screenshotFile,
 					InputSampleRate:   inputSampleRate,
 					OutputSampleRate:  outputSampleRate,
+					EnableAEC:         enableAEC,
+				AECFilterMs:       aecFilterMs,
+				AECDelayMs:        aecDelayMs,
+				DumpAudioDir:      dumpAudioDir,
 				})
 				cancel()
 			}()
 
 			ui.Run()
 		} else {
-			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout)
+			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout, inputCtrl)
 		}
 
 		return
