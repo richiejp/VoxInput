@@ -134,16 +134,17 @@ func (l *Listener) ReceiveAssistantMessages() {
 		switch msg.ServerEventType() {
 		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
 			log.Println("Listener.ReceiveAssistantMessages: speech detected")
-			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
+			l.config.UI.Send(&gui.ShowSpeechDetectedMsg{})
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
 			log.Println("Listener.ReceiveAssistantMessages: speech stopped, processing")
-			l.config.UI.Chan <- &gui.ShowSpeechSubmittedMsg{}
+			l.config.UI.Send(&gui.ShowSpeechSubmittedMsg{})
 		case openairt.ServerEventTypeResponseCreated:
 			log.Println("Listener.ReceiveAssistantMessages: generating response")
-			l.config.UI.Chan <- &gui.ShowGeneratingResponseMsg{}
+			l.config.UI.Send(&gui.ShowGeneratingResponseMsg{})
 		case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
 			transcript := msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
 			log.Printf("Listener.ReceiveAssistantMessages: user said: %s", transcript)
+			l.config.UI.Send(&gui.ShowTranscriptMsg{Text: transcript, IsUser: true})
 		case openairt.ServerEventTypeResponseOutputAudioDelta:
 			delta := msg.(openairt.ResponseOutputAudioDeltaEvent)
 			b, err := base64.StdEncoding.DecodeString(delta.Delta)
@@ -159,10 +160,10 @@ func (l *Listener) ReceiveAssistantMessages() {
 		case openairt.ServerEventTypeResponseFunctionCallArgumentsDone:
 			event := msg.(openairt.ResponseFunctionCallArgumentsDoneEvent)
 			log.Printf("Listener.ReceiveAssistantMessages: function call %s with arguments: %s", event.Name, event.Arguments)
-			l.config.UI.Chan <- &gui.ShowFunctionCallMsg{
+			l.config.UI.Send(&gui.ShowFunctionCallMsg{
 				FunctionName: event.Name,
 				Arguments:    event.Arguments,
-			}
+			})
 			switch event.Name {
 			case functionNameInputControl:
 				var args input.CommandParameters

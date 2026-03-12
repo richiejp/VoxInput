@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/input"
+	"github.com/richiejp/VoxInput/internal/ipc"
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
@@ -102,6 +104,23 @@ func (cr *chunkReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+type ipcLogWriter struct {
+	server *ipc.Server
+}
+
+func (w *ipcLogWriter) Write(p []byte) (int, error) {
+	text := strings.TrimRight(string(p), "\n")
+	if text == "" {
+		return len(p), nil
+	}
+	w.server.Broadcast(ipc.Event{
+		Kind: ipc.EventLog,
+		Ts:   time.Now().UnixMilli(),
+		Text: text,
+	})
+	return len(p), nil
+}
+
 func getPrefixedEnv(prefixes []string, name string, fallback string) (val string) {
 	for _, p := range prefixes {
 		var n string
@@ -163,7 +182,7 @@ type ListenConfig struct {
 	Lang              string
 	Model             string
 	Timeout           time.Duration
-	UI                *gui.GUI
+	UI                gui.StatusSink
 	CaptureDevice     string
 	OutputFile        string
 	Prompt            string
@@ -181,6 +200,7 @@ type ListenConfig struct {
 	AECFilterMs       int
 	AECDelayMs        int
 	DumpAudioDir      string
+	IPCServer         *ipc.Server
 }
 
 type Listener struct {
@@ -304,7 +324,7 @@ func (l *Listener) Start() error {
 	if err := pid.WriteState(l.statePath, true); err != nil {
 		log.Println("Listener.Start: failed to write recording state: ", err)
 	}
-	l.config.UI.Chan <- &gui.ShowListeningMsg{}
+	l.config.UI.Send(&gui.ShowListeningMsg{})
 
 	return nil
 }
@@ -368,6 +388,11 @@ func (l *Listener) Stop() {
 }
 
 func listen(config ListenConfig) {
+	if config.IPCServer != nil {
+		lw := &ipcLogWriter{server: config.IPCServer}
+		log.SetOutput(lw)
+	}
+
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -458,25 +483,46 @@ func listen(config ListenConfig) {
 		log.Println("listen: failed to write initial state: ", err)
 	}
 
+	var ipcCmds <-chan ipc.Command
+	if config.IPCServer != nil {
+		ipcCmds = config.IPCServer.Commands()
+	}
+
 ForListen:
 	for {
 		log.Println("listen: Waiting for record signal...")
 
 		var sig os.Signal
 		for {
-			sig = <-sigChan
-			switch sig {
-			case syscall.SIGUSR1:
-				// start
-			case syscall.SIGUSR2:
-				log.Println("listen: Received stop/write signal, but wasn't recording")
+			select {
+			case sig = <-sigChan:
+				switch sig {
+				case syscall.SIGUSR1:
+					// start
+				case syscall.SIGUSR2:
+					log.Println("listen: Received stop/write signal, but wasn't recording")
+					continue
+				case syscall.SIGTERM:
+					break ForListen
+				}
+				if sig == syscall.SIGUSR1 {
+					break
+				}
 				continue
-			case syscall.SIGTERM:
-				break ForListen
+			case cmd := <-ipcCmds:
+				switch cmd.Kind {
+				case ipc.CommandRecord:
+					// start
+				case ipc.CommandStop:
+					log.Println("listen: Received IPC stop, but wasn't recording")
+					continue
+				case ipc.CommandQuit:
+					break ForListen
+				default:
+					continue
+				}
 			}
-			if sig == syscall.SIGUSR1 {
-				break
-			}
+			break
 		}
 
 		l := NewListener(config, streamConfig, rtCli, statePath, echoCanceller)
@@ -501,21 +547,29 @@ ForListen:
 				case syscall.SIGUSR1:
 					log.Println("listen: received record signal, but already recording")
 				case syscall.SIGUSR2:
-					// TODO: Do input_audio_buffer.commit and/or wait for final transcription?
 					break ForSignal
 				case syscall.SIGTERM:
-					l.config.UI.Chan <- &gui.ShowStoppingMsg{}
+					l.config.UI.Send(&gui.ShowStoppingMsg{})
 					l.Stop()
 					break ForListen
 				}
-			// We check this incase there was an error. Otherwise we would sit here waiting
-			// for a signal to stop listening when we have effectively already stopped listening
+			case cmd := <-ipcCmds:
+				switch cmd.Kind {
+				case ipc.CommandRecord:
+					log.Println("listen: received IPC record, but already recording")
+				case ipc.CommandStop:
+					break ForSignal
+				case ipc.CommandQuit:
+					l.config.UI.Send(&gui.ShowStoppingMsg{})
+					l.Stop()
+					break ForListen
+				}
 			case <-l.ctx.Done():
 				break ForSignal
 			}
 		}
 
-		l.config.UI.Chan <- &gui.ShowStoppingMsg{}
+		l.config.UI.Send(&gui.ShowStoppingMsg{})
 		l.Stop()
 
 		for {

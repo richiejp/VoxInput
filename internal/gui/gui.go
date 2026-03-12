@@ -23,6 +23,11 @@ type ShowFunctionCallMsg struct {
 type HideMsg struct{}
 type ShowStoppingMsg struct{}
 
+type ShowTranscriptMsg struct {
+	Text   string
+	IsUser bool
+}
+
 func (m *ShowListeningMsg) IsMsg() bool          { return true }
 func (m *ShowSpeechDetectedMsg) IsMsg() bool     { return true }
 func (m *ShowTranscribingMsg) IsMsg() bool       { return true }
@@ -31,6 +36,21 @@ func (m *ShowGeneratingResponseMsg) IsMsg() bool { return true }
 func (m *ShowFunctionCallMsg) IsMsg() bool       { return true }
 func (m *HideMsg) IsMsg() bool                   { return true }
 func (m *ShowStoppingMsg) IsMsg() bool           { return true }
+func (m *ShowTranscriptMsg) IsMsg() bool         { return true }
+
+type StatusSink interface {
+	Send(msg Msg)
+}
+
+type MultiSink struct {
+	Sinks []StatusSink
+}
+
+func (ms *MultiSink) Send(msg Msg) {
+	for _, s := range ms.Sinks {
+		s.Send(msg)
+	}
+}
 
 type GUI struct {
 	ctx        context.Context
@@ -46,6 +66,10 @@ func New(ctx context.Context, showStatus bool) *GUI {
 	}
 
 	return g
+}
+
+func (g *GUI) Send(msg Msg) {
+	g.Chan <- msg
 }
 
 func (g *GUI) Run() {

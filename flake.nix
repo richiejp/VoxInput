@@ -47,7 +47,7 @@
             # Path to the source code
             src = ./.;
 
-            vendorHash = "sha256-VlBxqc4HbpdHDaVZZ04uzRcRkSONzTOTgvVXvWOXVOY=";
+            vendorHash = "sha256-DjZNaJk1bPLWsytVPFE1MvW4cl+/r+me0xnewIkBrf0=";
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
