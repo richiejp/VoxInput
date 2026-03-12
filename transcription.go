@@ -69,10 +69,10 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 		switch msg.ServerEventType() {
 		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
 			log.Println("Listener.ReceiveTranscriptionMessages: speech detected")
-			l.config.UI.Chan <- &gui.ShowSpeechDetectedMsg{}
+			l.config.UI.Send(&gui.ShowSpeechDetectedMsg{})
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
 			log.Println("Listener.ReceiveTranscriptionMessages: speech stopped, transcribing")
-			l.config.UI.Chan <- &gui.ShowTranscribingMsg{}
+			l.config.UI.Send(&gui.ShowTranscribingMsg{})
 		case openairt.ServerEventTypeResponseOutputAudioTranscriptDone:
 			text = msg.(openairt.ResponseOutputAudioTranscriptDoneEvent).Transcript
 		case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
@@ -86,7 +86,8 @@ func (l *Listener) ReceiveTranscriptionMessages() {
 		if text == "" {
 			continue
 		}
-		l.config.UI.Chan <- &gui.HideMsg{}
+		l.config.UI.Send(&gui.HideMsg{})
+		l.config.UI.Send(&gui.ShowTranscriptMsg{Text: text, IsUser: true})
 		log.Println("Listener.ReceiveTranscriptionMessages: received transcribed text: ", text)
 		if l.config.OutputFile != "" {
 			f, err := os.OpenFile(l.config.OutputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)

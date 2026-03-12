@@ -21,6 +21,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses.
 - **Desktop Control**: In assistant mode, the LLM can execute keyboard and mouse commands through function calls to control your desktop environment.
 - **Screenshot Capture**: In assistant mode, the LLM can request a screenshot of your desktop to provide visual context for its responses.
+- **Terminal UI**: Interactive TUI mode (`voxinput tui`) with chat and log tabs, recording controls, and the ability to attach to a running listen process.
 
 ## Requirements
 
@@ -95,6 +96,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_AEC_FILTER_MS`: AEC filter length in milliseconds (default: 200).
 - `VOXINPUT_AEC_DELAY_MS`: AEC reference delay in milliseconds to compensate for acoustic path delay between speaker and mic (default: 50). Use the dump+shift analysis test to find the optimal value for your setup.
 - `VOXINPUT_DUMP_AUDIO_DIR`: Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
+- `VOXINPUT_SOCKET`: Socket path for IPC server (default: `$XDG_RUNTIME_DIR/VoxInput.sock` when using `tui` subcommand)
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
 
 **Warning**: Assistant mode is WIP and you may need a particular version of LocalAI's realtime API to run it because I am developing both in lockstep. Eventually though it should be compatible with at least OpenAI or LocalAI.
@@ -113,6 +115,7 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--screenshot-command <cmd>`: (assistant mode only) Command to capture a screenshot (e.g. `grim /tmp/screenshot.png`)
   - `--screenshot-file <path>`: (assistant mode only) Path where the screenshot command saves its output
   - `--dump-audio <dir>`: (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
+  - `--socket <path>`: Enable IPC socket server for TUI connections
 
   ```bash
   ./voxinput listen
@@ -141,6 +144,18 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - **`devices`**: List capture devices.
   ```bash
   ./voxinput devices
+  ```
+
+- **`tui`**: Launch interactive terminal UI with chat and log tabs.
+  - `--connect <path>`: Connect to an existing listen process socket instead of starting a subprocess.
+  - Additional flags are passed through to the listen subprocess.
+
+  ```bash
+  # Launch TUI (starts listen subprocess automatically)
+  ./voxinput tui
+
+  # Connect to an existing listen process
+  ./voxinput tui --connect /tmp/VoxInput.sock
   ```
 
 - **`help`**: Show help message.

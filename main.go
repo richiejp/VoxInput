@@ -15,6 +15,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/input"
+	"github.com/richiejp/VoxInput/internal/ipc"
 	"github.com/richiejp/VoxInput/internal/pid"
 	"github.com/richiejp/VoxInput/internal/semver"
 )
@@ -30,7 +31,7 @@ func main() {
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("Expected 'listen', 'record', 'write', 'toggle', 'status', or 'help' subcommands")
+		fmt.Println("Expected 'listen', 'tui', 'record', 'write', 'toggle', 'status', or 'help' subcommands")
 		os.Exit(1)
 	}
 
@@ -53,6 +54,11 @@ func main() {
            --screenshot-command <cmd> (assistant mode only) Command to capture a screenshot (e.g. "grim /tmp/screenshot.png")
            --screenshot-file <path> (assistant mode only) Path where the screenshot command saves its output
            --dump-audio <dir> (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
+           --socket <path> Enable IPC socket server at the given path for TUI connections
+
+  tui    - Launch interactive terminal UI with chat and log tabs
+           --connect <path> Connect to an existing listen process socket instead of starting a subprocess
+           Additional flags are passed through to the listen subprocess
 
   record - Tell existing listener to start recording audio. In realtime mode it also begins transcription
   write  - Tell existing listener to stop recording audio and begin transcription if not in realtime mode
@@ -88,10 +94,14 @@ Environment variables:
   VOXINPUT_DUMP_AUDIO_DIR - Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
   VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
   VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
+  VOXINPUT_SOCKET - Socket path for IPC (default: $XDG_RUNTIME_DIR/VoxInput.sock)
   XDG_RUNTIME_DIR - Directory for PID and state files (required, standard XDG variable)`)
 		return
 	case "ver":
 		fmt.Printf("v%s\n", strings.TrimSpace(string(version)))
+		return
+	case "tui":
+		tuiCommand(os.Args[2:])
 		return
 	default:
 	}
@@ -137,6 +147,7 @@ Environment variables:
 		aecDelayMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_DELAY_MS", "50")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
+		socketPath := getPrefixedEnv([]string{"VOXINPUT"}, "SOCKET", "")
 		screenshotCommand := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_COMMAND", "")
 		screenshotFile := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_FILE", "")
 
@@ -274,6 +285,14 @@ Environment variables:
 			}
 		}
 
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--socket" && i+1 < len(os.Args) {
+				socketPath = os.Args[i+1]
+				break
+			}
+		}
+
 		// Create input controller for keyboard/mouse simulation.
 		// Only required when we need to type text (no output file) or use input control in assistant mode.
 		var inputCtrl input.Controller
@@ -288,7 +307,21 @@ Environment variables:
 
 		if realtime {
 			ctx, cancel := context.WithCancel(context.Background())
-			ui := gui.New(ctx, showStatus)
+			guiSink := gui.New(ctx, showStatus)
+
+			var sink gui.StatusSink = guiSink
+			var ipcServer *ipc.Server
+
+			if socketPath != "" {
+				var err error
+				ipcServer, err = ipc.NewServer(socketPath)
+				if err != nil {
+					log.Fatalln("main: failed to create IPC server:", err)
+				}
+				defer ipcServer.Close()
+				sink = &gui.MultiSink{Sinks: []gui.StatusSink{guiSink, ipcServer}}
+				log.Println("main: IPC socket server listening on", socketPath)
+			}
 
 			go func() {
 				listen(ListenConfig{
@@ -299,7 +332,7 @@ Environment variables:
 					Lang:              lang,
 					Model:             model,
 					Timeout:           timeout,
-					UI:                ui,
+					UI:                sink,
 					CaptureDevice:     captureDeviceName,
 					OutputFile:        outputFile,
 					Prompt:            prompt,
@@ -317,11 +350,12 @@ Environment variables:
 				AECFilterMs:       aecFilterMs,
 				AECDelayMs:        aecDelayMs,
 				DumpAudioDir:      dumpAudioDir,
+				IPCServer:         ipcServer,
 				})
 				cancel()
 			}()
 
-			ui.Run()
+			guiSink.Run()
 		} else {
 			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout, inputCtrl)
 		}
