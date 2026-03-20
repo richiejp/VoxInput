@@ -108,7 +108,7 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 }
 
 func (l *Listener) runAudioAssistant() {
-	if err := audio.Duplex(l.ctx, l.playReader, l.chunkWriter, l.streamConfig, l.echoCanceller, l.duplexOpts); err != nil {
+	if err := audio.Duplex(l.ctx, l.playReader, l.chunkWriter, l.streamConfig, l.processor, l.duplexOpts); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
 			return
 		}
