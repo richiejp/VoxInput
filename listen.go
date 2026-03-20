@@ -20,8 +20,8 @@ import (
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/gen2brain/malgo"
 
-	"github.com/richiejp/VoxInput/internal/aec"
 	"github.com/richiejp/VoxInput/internal/audio"
+	"github.com/richiejp/VoxInput/internal/deepvqe"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/ipc"
@@ -196,11 +196,11 @@ type ListenConfig struct {
 	ScreenshotFile    string
 	InputSampleRate   int
 	OutputSampleRate  int
-	EnableAEC         bool
-	AECFilterMs       int
-	AECDelayMs        int
-	DumpAudioDir      string
-	IPCServer         *ipc.Server
+	EnableAEC        bool
+	DeepVQEModelPath string
+	DeepVQELibPath   string
+	DumpAudioDir     string
+	IPCServer        *ipc.Server
 }
 
 type Listener struct {
@@ -216,22 +216,22 @@ type Listener struct {
 	statePath       string
 	audioPlayChunks chan *bytes.Buffer
 	playReader      *chunkReader
-	echoCanceller   *aec.Canceller
+	processor       audio.AudioProcessor
 	duplexOpts      *audio.DuplexOpts
 }
 
-func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string, echoCanceller *aec.Canceller) *Listener {
+func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string, processor audio.AudioProcessor) *Listener {
 	ctx, cancel := context.WithCancel(context.Background())
 	l := &Listener{
-		ctx:           ctx,
-		cancel:        cancel,
-		config:        config,
-		streamConfig:  streamConfig,
-		rtCli:         rtCli,
-		statePath:     statePath,
-		errCh:         make(chan error, 1),
-		audioChunks:   make(chan *bytes.Buffer, 1024),
-		echoCanceller: echoCanceller,
+		ctx:          ctx,
+		cancel:       cancel,
+		config:       config,
+		streamConfig: streamConfig,
+		rtCli:        rtCli,
+		statePath:    statePath,
+		errCh:        make(chan error, 1),
+		audioChunks:  make(chan *bytes.Buffer, 1024),
+		processor:    processor,
 	}
 	l.chunkWriter = newChunkWriter(l.ctx, l.audioChunks)
 	l.audioPlayChunks = make(chan *bytes.Buffer, 1024)
@@ -271,14 +271,6 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 				log.Printf("NewListener: dumping audio to %s", config.DumpAudioDir)
 			}
 		}
-	}
-
-	if config.AECDelayMs > 0 {
-		if l.duplexOpts == nil {
-			l.duplexOpts = &audio.DuplexOpts{}
-		}
-		l.duplexOpts.ReferenceDelayMs = config.AECDelayMs
-		log.Printf("NewListener: AEC reference delay %d ms", config.AECDelayMs)
 	}
 
 	return l
@@ -437,20 +429,23 @@ func listen(config ListenConfig) {
 		log.Printf("Using capture device: %s", captureDeviceName)
 	}
 
-	var echoCanceller *aec.Canceller
+	var processor audio.AudioProcessor
 	if config.EnableAEC && config.Mode == "assistant" {
-		frameSize := sampleRate * periodMs / 1000
-		filterMs := config.AECFilterMs
-		if filterMs <= 0 {
-			filterMs = 200
-		}
-		filterLen := sampleRate * filterMs / 1000
-		var err error
-		echoCanceller, err = aec.New(frameSize, filterLen, sampleRate)
+		modelPath, err := deepvqe.EnsureModel(config.DeepVQEModelPath)
 		if err != nil {
-			log.Fatalf("listen: failed to create echo canceller: %v", err)
+			log.Fatalf("listen: failed to ensure deepvqe model: %v", err)
 		}
-		log.Printf("listen: AEC enabled (frameSize=%d, filterLen=%d (%dms), sampleRate=%d)", frameSize, filterLen, filterMs, sampleRate)
+		libPath := config.DeepVQELibPath
+		if libPath == "" {
+			libPath = "libdeepvqe.so"
+		}
+		engine, err := deepvqe.New(libPath, modelPath)
+		if err != nil {
+			log.Fatalf("listen: failed to create deepvqe engine: %v", err)
+		}
+		chunkMs := 500
+		processor = audio.NewDeepVQEProcessor(engine, sampleRate, chunkMs)
+		log.Printf("listen: DeepVQE AEC enabled (modelRate=%d, deviceRate=%d, chunkMs=%d)", engine.SampleRate(), sampleRate, chunkMs)
 	}
 
 	rtConf := openairt.DefaultConfig(config.APIKey)
@@ -525,7 +520,7 @@ ForListen:
 			break
 		}
 
-		l := NewListener(config, streamConfig, rtCli, statePath, echoCanceller)
+		l := NewListener(config, streamConfig, rtCli, statePath, processor)
 		if err := l.Start(); err != nil {
 			l.cancel()
 			continue

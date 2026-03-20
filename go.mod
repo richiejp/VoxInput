@@ -4,6 +4,10 @@ go 1.24.2
 
 require (
 	github.com/WqyJh/go-openai-realtime/v2 v2.0.0-rc.0.20260120095754-b1a91a348dbd
+	github.com/charmbracelet/bubbles v1.0.0
+	github.com/charmbracelet/bubbletea v1.3.10
+	github.com/charmbracelet/lipgloss v1.1.0
+	github.com/ebitengine/purego v0.10.0
 	github.com/gen2brain/beeep v0.11.2
 	github.com/gen2brain/malgo v0.11.24
 	github.com/sashabaranov/go-openai v1.41.2
@@ -12,10 +16,7 @@ require (
 require (
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/charmbracelet/bubbles v1.0.0 // indirect
-	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.4.1 // indirect
-	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/x/ansi v0.11.6 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect

@@ -5,12 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"strings"
 
 	"github.com/gen2brain/malgo"
-	"github.com/richiejp/VoxInput/internal/aec"
 )
 
 // Copied from malgo/examples/io_api
@@ -24,7 +22,7 @@ type StreamConfig struct {
 	InputSampleRate  int
 	OutputSampleRate int
 	PeriodMs         int
-	MalgoContext     malgo.Context
+	MalgoContext      malgo.Context
 	CaptureDeviceID  *malgo.DeviceID
 }
 
@@ -201,68 +199,12 @@ func resampleS16(samples []byte, fromRate, toRate int) []byte {
 	return resampled
 }
 
-// aecProcessor buffers audio to process AEC in fixed-size frames.
-// Audio backends may deliver frames of varying sizes, but SpeexDSP
-// requires exact frame sizes as configured during initialization.
-type aecProcessor struct {
-	canceller  *aec.Canceller
-	frameBytes int
-	recBuf     []byte
-	playBuf    []byte
-	outFrame   []byte
-
-	diagInSum  float64
-	diagRefSum float64
-	diagOutSum float64
-	diagRefMax float64
-	diagCount  int
-}
-
-// newAECProcessor creates a new AEC frame processor. delayBytes prepends
-// silence to the playback reference buffer so that mic sample at time t
-// is paired with the speaker sample from t-delay. This compensates for
-// the acoustic path delay and lets the filter converge much faster.
-func newAECProcessor(c *aec.Canceller, delayBytes int) *aecProcessor {
-	fb := c.FrameSize() * 2
-	p := &aecProcessor{
-		canceller:  c,
-		frameBytes: fb,
-		outFrame:   make([]byte, fb),
-	}
-	if delayBytes > 0 {
-		p.playBuf = make([]byte, delayBytes)
-	}
-	return p
-}
-
-// Process feeds captured (rec) and playback (play) samples into the echo
-// canceller. It returns the cleaned signal, which may be shorter or longer
-// than rec depending on buffering. Returns nil if not enough data has
-// accumulated for a complete frame yet.
-func (p *aecProcessor) Process(rec, play []byte) []byte {
-	p.recBuf = append(p.recBuf, rec...)
-	p.playBuf = append(p.playBuf, play...)
-
-	var cleaned []byte
-	recOff := 0
-	playOff := 0
-	for recOff+p.frameBytes <= len(p.recBuf) && playOff+p.frameBytes <= len(p.playBuf) {
-		p.canceller.Process(p.recBuf[recOff:recOff+p.frameBytes], p.playBuf[playOff:playOff+p.frameBytes], p.outFrame)
-		cleaned = append(cleaned, p.outFrame...)
-		recOff += p.frameBytes
-		playOff += p.frameBytes
-	}
-
-	if recOff > 0 {
-		n := copy(p.recBuf, p.recBuf[recOff:])
-		p.recBuf = p.recBuf[:n]
-	}
-	if playOff > 0 {
-		n := copy(p.playBuf, p.playBuf[playOff:])
-		p.playBuf = p.playBuf[:n]
-	}
-
-	return cleaned
+// AudioProcessor processes captured audio with a playback reference.
+// Process takes rec (microphone) and play (speaker) byte slices of int16 LE
+// PCM at the device sample rate. It returns cleaned audio bytes, or nil if
+// still buffering (batch processors may need to accumulate data first).
+type AudioProcessor interface {
+	Process(rec, play []byte) []byte
 }
 
 // DuplexOpts holds optional parameters for Duplex.
@@ -273,9 +215,6 @@ type DuplexOpts struct {
 	DumpOutput io.Writer
 	// Cleaned mic samples at the hardware sample rate, after AEC processing.
 	DumpProcessed io.Writer
-	// ReferenceDelayMs delays the speaker reference by this many ms to
-	// compensate for the acoustic path delay between speaker and mic.
-	ReferenceDelayMs int
 }
 
 // Duplex streams audio from a reader to the playback device and captures audio
@@ -283,25 +222,15 @@ type DuplexOpts struct {
 // It initializes a duplex device in the default context using the provided stream configuration.
 // It expects both r and w to be non-nil.
 // If InputSampleRate and OutputSampleRate differ from SampleRate, resampling is performed.
-// If echoCanceller is non-nil, the speaker output is subtracted from the mic input.
+// If processor is non-nil, the speaker output is used as reference for echo cancellation.
 // XXX: Capture, Duplex and Playback are mutually exclusive, only use one at a time
-func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, echoCanceller *aec.Canceller, opts *DuplexOpts) error {
+func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, processor AudioProcessor, opts *DuplexOpts) error {
 	abortChan := make(chan error)
 	defer close(abortChan)
 	aborted := false
 
 	needInputResample := config.InputSampleRate != 0 && config.InputSampleRate != config.SampleRate
 	needOutputResample := config.OutputSampleRate != 0 && config.OutputSampleRate != config.SampleRate
-
-	var aecProc *aecProcessor
-	if echoCanceller != nil {
-		delayBytes := 0
-		if opts != nil && opts.ReferenceDelayMs > 0 {
-			delaySamples := config.SampleRate * opts.ReferenceDelayMs / 1000
-			delayBytes = delaySamples * 2
-		}
-		aecProc = newAECProcessor(echoCanceller, delayBytes)
-	}
 
 	callbackCount := 0
 	deviceCallbacks := malgo.DeviceCallbacks{
@@ -310,11 +239,6 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 				return
 			}
 			callbackCount++
-
-			if aecProc != nil && callbackCount == 1 {
-				log.Printf("AEC: first callback: outputSamples=%d inputSamples=%d frameCount=%d aecFrame=%d",
-					len(outputSamples), len(inputSamples), frameCount, aecProc.frameBytes)
-			}
 
 			// Process output (speaker) first so the reference signal is
 			// available for echo cancellation before we handle input.
@@ -372,8 +296,8 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 
 				samplesToWrite := inputSamples
 
-				if aecProc != nil && len(outputSamples) > 0 {
-					cleaned := aecProc.Process(inputSamples, outputSamples)
+				if processor != nil && len(outputSamples) > 0 {
+					cleaned := processor.Process(inputSamples, outputSamples)
 					if len(cleaned) > 0 {
 						samplesToWrite = cleaned
 						if opts != nil && opts.DumpProcessed != nil {
@@ -381,33 +305,6 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 						}
 					} else {
 						return
-					}
-
-					refRMS := rmsS16(outputSamples)
-					aecProc.diagInSum += rmsS16(inputSamples)
-					aecProc.diagRefSum += refRMS
-					aecProc.diagOutSum += rmsS16(cleaned)
-					if refRMS > aecProc.diagRefMax {
-						aecProc.diagRefMax = refRMS
-					}
-					aecProc.diagCount++
-
-					if callbackCount%500 == 0 && aecProc.diagCount > 0 {
-						cnt := float64(aecProc.diagCount)
-						avgIn := aecProc.diagInSum / cnt
-						avgRef := aecProc.diagRefSum / cnt
-						avgOut := aecProc.diagOutSum / cnt
-						reductionDB := math.NaN()
-						if avgIn > 0 {
-							reductionDB = 20 * math.Log10(avgOut / avgIn)
-						}
-						log.Printf("AEC: cb=%d avgIn=%.0f avgRef=%.0f peakRef=%.0f avgOut=%.0f reduction=%.1fdB frames=%d",
-							callbackCount, avgIn, avgRef, aecProc.diagRefMax, avgOut, reductionDB, aecProc.diagCount)
-						aecProc.diagInSum = 0
-						aecProc.diagRefSum = 0
-						aecProc.diagOutSum = 0
-						aecProc.diagRefMax = 0
-						aecProc.diagCount = 0
 					}
 				}
 

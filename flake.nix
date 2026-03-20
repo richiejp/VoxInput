@@ -13,6 +13,19 @@
       devShells = forAllSystems (system:
         let
           pkgs = nixpkgsFor.${system};
+          deepvqe-lib = pkgs.stdenv.mkDerivation {
+            pname = "libdeepvqe";
+            version = "0.1.0";
+            src = ./deepvqe-ggml/ggml;
+            nativeBuildInputs = [ pkgs.cmake ];
+            cmakeFlags = [ "-DDEEPVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
+            installPhase = ''
+              mkdir -p $out/lib $out/include
+              cp libdeepvqe.so* $out/lib/ || true
+              cp libdeepvqe.so $out/lib/ || true
+              cp ${./deepvqe-ggml/ggml/deepvqe_api.h} $out/include/
+            '';
+          };
         in
         {
           default = pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
@@ -24,11 +37,11 @@
 
               libpulseaudio
               dotool
-              speexdsp
+              deepvqe-lib
 
               libGL pkg-config xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
-            LD_LIBRARY_PATH = "${pkgs.libpulseaudio}/lib";
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libpulseaudio deepvqe-lib ];
           };
         });
 
@@ -37,6 +50,19 @@
           pkgs = nixpkgsFor.${system};
           lib = pkgs.lib;
           stdenv = pkgs.stdenv;
+          deepvqe-lib = pkgs.stdenv.mkDerivation {
+            pname = "libdeepvqe";
+            version = "0.1.0";
+            src = ./deepvqe-ggml/ggml;
+            nativeBuildInputs = [ pkgs.cmake ];
+            cmakeFlags = [ "-DDEEPVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
+            installPhase = ''
+              mkdir -p $out/lib $out/include
+              cp libdeepvqe.so* $out/lib/ || true
+              cp libdeepvqe.so $out/lib/ || true
+              cp ${./deepvqe-ggml/ggml/deepvqe_api.h} $out/include/
+            '';
+          };
         in
         {
           default = pkgs.buildGoModule {
@@ -47,7 +73,7 @@
             # Path to the source code
             src = ./.;
 
-            vendorHash = "sha256-DjZNaJk1bPLWsytVPFE1MvW4cl+/r+me0xnewIkBrf0=";
+            vendorHash = null; # will need updating after go mod tidy
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
@@ -58,7 +84,7 @@
             buildInputs = with pkgs; [
               libpulseaudio
               dotool
-              speexdsp
+              deepvqe-lib
 
               libGL xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
@@ -75,7 +101,7 @@
 
             postFixup = lib.optionalString stdenv.hostPlatform.isElf ''
               patchelf $out/bin/.voxinput-wrapped \
-                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio ]}
+                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio deepvqe-lib ]}
             '';
 
             meta = with pkgs.lib; {

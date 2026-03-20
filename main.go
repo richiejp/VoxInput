@@ -50,7 +50,6 @@ func main() {
            --instructions <text> System prompt for the assistant model
            --no-dotool (assistant mode only) Disable the dotool function call
            --no-aec (assistant mode only) Disable acoustic echo cancellation
-           --aec-filter-ms <ms> (assistant mode only) AEC filter length in milliseconds (default: 500)
            --screenshot-command <cmd> (assistant mode only) Command to capture a screenshot (e.g. "grim /tmp/screenshot.png")
            --screenshot-file <path> (assistant mode only) Path where the screenshot command saves its output
            --dump-audio <dir> (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
@@ -89,8 +88,8 @@ Environment variables:
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   VOXINPUT_ENABLE_AEC - Enable acoustic echo cancellation in assistant mode (yes/no, default: yes)
-  VOXINPUT_AEC_FILTER_MS - AEC filter length in milliseconds (default: 200)
-  VOXINPUT_AEC_DELAY_MS - AEC reference delay in milliseconds to compensate acoustic path delay (default: 50)
+  VOXINPUT_DEEPVQE_MODEL - Path to DeepVQE GGUF model file (default: auto-download to $XDG_DATA_HOME/voxinput/deepvqe.gguf)
+  VOXINPUT_DEEPVQE_LIB - Path to libdeepvqe.so (default: system library path)
   VOXINPUT_DUMP_AUDIO_DIR - Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
   VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
   VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
@@ -143,8 +142,8 @@ Environment variables:
 		inputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "INPUT_SAMPLE_RATE", "24000")
 		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
 		dumpAudioDir := getPrefixedEnv([]string{"VOXINPUT"}, "DUMP_AUDIO_DIR", "")
-		aecFilterMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_FILTER_MS", "200")
-		aecDelayMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_DELAY_MS", "50")
+		deepvqeModelPath := getPrefixedEnv([]string{"VOXINPUT"}, "DEEPVQE_MODEL", "")
+		deepvqeLibPath := getPrefixedEnv([]string{"VOXINPUT"}, "DEEPVQE_LIB", "")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 		socketPath := getPrefixedEnv([]string{"VOXINPUT"}, "SOCKET", "")
@@ -167,18 +166,6 @@ Environment variables:
 		if err != nil {
 			log.Println("main: failed to parse output sample rate", err)
 			outputSampleRate = 24000
-		}
-
-		aecFilterMs, err := strconv.Atoi(aecFilterMsStr)
-		if err != nil {
-			log.Println("main: failed to parse AEC filter length", err)
-			aecFilterMs = 200
-		}
-
-		aecDelayMs, err := strconv.Atoi(aecDelayMsStr)
-		if err != nil {
-			log.Println("main: failed to parse AEC delay", err)
-			aecDelayMs = 0
 		}
 
 		if lang != "" {
@@ -277,16 +264,6 @@ Environment variables:
 
 		for i := 2; i < len(os.Args); i++ {
 			arg := os.Args[i]
-			if arg == "--aec-filter-ms" && i+1 < len(os.Args) {
-				if v, err := strconv.Atoi(os.Args[i+1]); err == nil {
-					aecFilterMs = v
-				}
-				break
-			}
-		}
-
-		for i := 2; i < len(os.Args); i++ {
-			arg := os.Args[i]
 			if arg == "--socket" && i+1 < len(os.Args) {
 				socketPath = os.Args[i+1]
 				break
@@ -346,11 +323,11 @@ Environment variables:
 					ScreenshotFile:    screenshotFile,
 					InputSampleRate:   inputSampleRate,
 					OutputSampleRate:  outputSampleRate,
-					EnableAEC:         enableAEC,
-				AECFilterMs:       aecFilterMs,
-				AECDelayMs:        aecDelayMs,
-				DumpAudioDir:      dumpAudioDir,
-				IPCServer:         ipcServer,
+					EnableAEC:        enableAEC,
+					DeepVQEModelPath: deepvqeModelPath,
+					DeepVQELibPath:   deepvqeLibPath,
+					DumpAudioDir:     dumpAudioDir,
+					IPCServer:        ipcServer,
 				})
 				cancel()
 			}()
