@@ -14,7 +14,7 @@ import (
 const (
 	defaultModelURL = "https://huggingface.co/richiejp/deepvqe-aec-gguf/resolve/main/deepvqe.gguf"
 	// TODO: set actual checksum after model upload
-	modelSHA256 = ""
+	modelSHA256 = "3a0869615ac0e888f1198d381f6910c762363e493389c0e50f7583af843aa893"
 )
 
 // EnsureModel returns a path to the GGUF model file, downloading it if needed.

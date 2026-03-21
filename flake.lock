@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "deepvqe-ggml-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1773779655,
+        "narHash": "sha256-zmtht7PFhfOtw1dFK+TWNrsDObrkbZmphzidnj3io4U=",
+        "ref": "refs/heads/main",
+        "rev": "e80a6c761c680a35d4d32d595222ae054236890c",
+        "revCount": 18,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/richiejp/deepvqe-ggml"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/richiejp/deepvqe-ggml"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1767767207,
@@ -17,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "deepvqe-ggml-src": "deepvqe-ggml-src",
         "nixpkgs": "nixpkgs"
       }
     }
