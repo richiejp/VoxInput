@@ -7,7 +7,6 @@ import (
 	"github.com/ebitengine/purego"
 )
 
-// DeepVQE wraps the libdeepvqe C API via purego (no cgo required).
 type DeepVQE struct {
 	lib uintptr
 	ctx uintptr
@@ -61,7 +60,6 @@ func (d *DeepVQE) ProcessS16(mic, ref []int16) ([]int16, error) {
 	return out, nil
 }
 
-// LastError returns the last error message.
 func (d *DeepVQE) LastError() string {
 	ptr := d.fnLastError(d.ctx)
 	if ptr == 0 {

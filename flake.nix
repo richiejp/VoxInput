@@ -1,9 +1,15 @@
 {
   description = "VoxInput";
 
-  inputs.nixpkgs.url = "nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "nixpkgs/nixos-unstable";
+    deepvqe-ggml-src = {
+      url = "git+https://github.com/richiejp/deepvqe-ggml?submodules=1";
+      flake = false;
+    };
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, deepvqe-ggml-src }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -13,19 +19,6 @@
       devShells = forAllSystems (system:
         let
           pkgs = nixpkgsFor.${system};
-          deepvqe-lib = pkgs.stdenv.mkDerivation {
-            pname = "libdeepvqe";
-            version = "0.1.0";
-            src = ./deepvqe-ggml/ggml;
-            nativeBuildInputs = [ pkgs.cmake ];
-            cmakeFlags = [ "-DDEEPVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
-            installPhase = ''
-              mkdir -p $out/lib $out/include
-              cp libdeepvqe.so* $out/lib/ || true
-              cp libdeepvqe.so $out/lib/ || true
-              cp ${./deepvqe-ggml/ggml/deepvqe_api.h} $out/include/
-            '';
-          };
         in
         {
           default = pkgs.mkShell.override { stdenv = pkgs.clangStdenv; } {
@@ -37,11 +30,11 @@
 
               libpulseaudio
               dotool
-              deepvqe-lib
+              cmake
 
               libGL pkg-config xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libpulseaudio deepvqe-lib ];
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libpulseaudio ];
           };
         });
 
@@ -53,14 +46,14 @@
           deepvqe-lib = pkgs.stdenv.mkDerivation {
             pname = "libdeepvqe";
             version = "0.1.0";
-            src = ./deepvqe-ggml/ggml;
+            src = deepvqe-ggml-src + "/ggml";
             nativeBuildInputs = [ pkgs.cmake ];
             cmakeFlags = [ "-DDEEPVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
             installPhase = ''
               mkdir -p $out/lib $out/include
               cp libdeepvqe.so* $out/lib/ || true
               cp libdeepvqe.so $out/lib/ || true
-              cp ${./deepvqe-ggml/ggml/deepvqe_api.h} $out/include/
+              cp ${deepvqe-ggml-src + "/ggml/deepvqe_api.h"} $out/include/
             '';
           };
         in
