@@ -21,7 +21,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
-func listenOld(pidPath, apiKey, httpApiBase, lang, model string, replay bool, timeout time.Duration, inputCtrl input.Controller) {
+func listenOld(pidPath, apiKey, httpApiBase, lang, model, prompt string, replay bool, timeout time.Duration, inputCtrl input.Controller) {
 	mctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(message string) {
 		log.Print("internal/audio: ", message)
 	})
@@ -157,6 +157,7 @@ Listen:
 			FilePath: "audio.wav",
 			Reader:   wavReader,
 			Language: lang,
+			Prompt:   prompt,
 		}
 
 		resp, err := client.CreateTranscription(context.Background(), req)
