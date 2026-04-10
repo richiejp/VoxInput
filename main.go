@@ -357,7 +357,7 @@ Environment variables:
 
 			guiSink.Run()
 		} else {
-			listenOld(pidPath, apiKey, httpApiBase, lang, model, replay, timeout, inputCtrl)
+			listenOld(pidPath, apiKey, httpApiBase, lang, model, prompt, replay, timeout, inputCtrl)
 		}
 
 		return
