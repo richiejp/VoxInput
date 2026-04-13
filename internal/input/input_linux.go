@@ -65,7 +65,10 @@ func (c *dotoolController) ExecuteCommands(ctx context.Context, commands []Comma
 }
 
 func (c *dotoolController) TypeText(ctx context.Context, text string) error {
-	return c.ExecuteCommands(ctx, []Command{{Action: "type", Args: text}})
+	// Replace newlines and surrounding whitespace with a single space
+	// to prevent dotool from interpreting newlines as command separators
+	sanitizedText := strings.Join(strings.Fields(text), " ")
+	return c.ExecuteCommands(ctx, []Command{{Action: "type", Args: sanitizedText}})
 }
 
 func (c *dotoolController) Close() error {
