@@ -21,7 +21,7 @@ import (
 	"github.com/gen2brain/malgo"
 
 	"github.com/richiejp/VoxInput/internal/audio"
-	"github.com/richiejp/VoxInput/internal/deepvqe"
+	"github.com/richiejp/VoxInput/internal/localvqe"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/ipc"
@@ -41,6 +41,16 @@ func newChunkWriter(ctx context.Context, ready chan<- (*bytes.Buffer)) *chunkWri
 		ready:    ready,
 		current:  new(bytes.Buffer),
 		lastSend: time.Now(),
+	}
+}
+
+func (rbw *chunkWriter) Flush() {
+	if rbw.current.Len() > 0 {
+		select {
+		case rbw.ready <- rbw.current:
+		case <-rbw.ctx.Done():
+		}
+		rbw.current = new(bytes.Buffer)
 	}
 }
 
@@ -92,14 +102,12 @@ func (cr *chunkReader) Read(p []byte) (int, error) {
 			return n, nil
 		}
 
-		nn, err := cr.current.Read(p)
+		nn, _ := cr.current.Read(p)
 		n += nn
 		p = p[nn:]
-		if err == io.EOF {
+		if cr.current.Len() == 0 {
 			cr.current = nil
-			continue
 		}
-		return n, nil
 	}
 	return n, nil
 }
@@ -174,6 +182,14 @@ func waitForSessionUpdated(ctx context.Context, conn *openairt.Conn) error {
 	}
 }
 
+// AECRefSource selects which signal drives the AEC reference channel.
+type AECRefSource string
+
+const (
+	AECRefPlayback AECRefSource = "playback"
+	AECRefMonitor  AECRefSource = "monitor"
+)
+
 type ListenConfig struct {
 	PIDPath           string
 	APIKey            string
@@ -196,11 +212,14 @@ type ListenConfig struct {
 	ScreenshotFile    string
 	InputSampleRate   int
 	OutputSampleRate  int
-	EnableAEC        bool
-	DeepVQEModelPath string
-	DeepVQELibPath   string
-	DumpAudioDir     string
-	IPCServer        *ipc.Server
+	EnableAEC         bool
+	LocalVQEModelPath string
+	LocalVQELibPath   string
+	AECRefSource      AECRefSource
+	AECMonitorDevice  string
+	RefRing           *audio.Int16Ring
+	DumpAudioDir      string
+	IPCServer         *ipc.Server
 }
 
 type Listener struct {
@@ -237,6 +256,8 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 	l.audioPlayChunks = make(chan *bytes.Buffer, 1024)
 	l.playReader = newChunkReader(l.ctx, l.audioPlayChunks)
 
+	monitorMode := config.RefRing != nil && config.AECRefSource == AECRefMonitor
+
 	if config.DumpAudioDir != "" && config.Mode == "assistant" {
 		if err := os.MkdirAll(config.DumpAudioDir, 0o755); err != nil {
 			log.Printf("NewListener: failed to create dump dir: %v", err)
@@ -253,24 +274,48 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 			if err != nil {
 				log.Printf("NewListener: failed to create aec dump: %v", err)
 			}
-			if micFile != nil && spkFile != nil {
+			var ttsFile *os.File
+			if monitorMode {
+				ttsFile, err = os.Create(filepath.Join(config.DumpAudioDir, "tts.raw"))
+				if err != nil {
+					log.Printf("NewListener: failed to create tts dump: %v", err)
+				}
+			}
+			if micFile != nil && spkFile != nil && aecFile != nil {
 				l.duplexOpts = &audio.DuplexOpts{
 					DumpInput:     micFile,
 					DumpOutput:    spkFile,
 					DumpProcessed: aecFile,
 				}
+				if ttsFile != nil {
+					l.duplexOpts.DumpTTS = ttsFile
+				}
+				refSourceLabel := string(AECRefPlayback)
+				if monitorMode {
+					refSourceLabel = string(AECRefMonitor)
+				}
 				meta := map[string]any{
-					"sampleRate": streamConfig.SampleRate,
-					"channels":   1,
-					"format":     "s16le",
+					"sampleRate":     streamConfig.SampleRate,
+					"channels":       1,
+					"format":         "s16le",
+					"aec_ref_source": refSourceLabel,
 				}
 				metaPath := filepath.Join(config.DumpAudioDir, "meta.json")
 				if metaBytes, err := json.Marshal(meta); err == nil {
-					os.WriteFile(metaPath, metaBytes, 0o644)
+					if err := os.WriteFile(metaPath, metaBytes, 0o644); err != nil {
+						log.Printf("NewListener: failed to write meta.json: %v", err)
+					}
 				}
 				log.Printf("NewListener: dumping audio to %s", config.DumpAudioDir)
 			}
 		}
+	}
+
+	if monitorMode {
+		if l.duplexOpts == nil {
+			l.duplexOpts = &audio.DuplexOpts{}
+		}
+		l.duplexOpts.RefSource = config.RefRing
 	}
 
 	return l
@@ -361,6 +406,7 @@ func (l *Listener) SendChunks() {
 
 func (l *Listener) Stop() {
 	log.Println("Listener.Stop: finished transcribing")
+	l.chunkWriter.Flush()
 	l.conn.Close()
 	l.cancel()
 	if l.duplexOpts != nil {
@@ -373,6 +419,9 @@ func (l *Listener) Stop() {
 		if c, ok := l.duplexOpts.DumpProcessed.(io.Closer); ok {
 			c.Close()
 		}
+		if c, ok := l.duplexOpts.DumpTTS.(io.Closer); ok {
+			c.Close()
+		}
 	}
 	if err := pid.WriteState(l.statePath, false); err != nil {
 		log.Println("Listener.Stop: failed to write idle state: ", err)
@@ -381,7 +430,7 @@ func (l *Listener) Stop() {
 
 func listen(config ListenConfig) {
 	if config.IPCServer != nil {
-		lw := &ipcLogWriter{server: config.IPCServer}
+		lw := io.MultiWriter(os.Stderr, &ipcLogWriter{server: config.IPCServer})
 		log.SetOutput(lw)
 	}
 
@@ -431,21 +480,51 @@ func listen(config ListenConfig) {
 
 	var processor audio.AudioProcessor
 	if config.EnableAEC && config.Mode == "assistant" {
-		modelPath, err := deepvqe.EnsureModel(config.DeepVQEModelPath)
+		modelPath, err := localvqe.EnsureModel(config.LocalVQEModelPath)
 		if err != nil {
-			log.Fatalf("listen: failed to ensure deepvqe model: %v", err)
+			log.Fatalf("listen: failed to ensure localvqe model: %v", err)
 		}
-		libPath := config.DeepVQELibPath
-		if libPath == "" {
-			libPath = "libdeepvqe.so"
-		}
-		engine, err := deepvqe.New(libPath, modelPath)
+		libPath, err := localvqe.EnsureLib(config.LocalVQELibPath)
 		if err != nil {
-			log.Fatalf("listen: failed to create deepvqe engine: %v", err)
+			log.Fatalf("listen: failed to find localvqe lib: %v", err)
 		}
-		chunkMs := 500
-		processor = audio.NewDeepVQEProcessor(engine, sampleRate, chunkMs)
-		log.Printf("listen: DeepVQE AEC enabled (modelRate=%d, deviceRate=%d, chunkMs=%d)", engine.SampleRate(), sampleRate, chunkMs)
+		engine, err := localvqe.New(libPath, modelPath)
+		if err != nil {
+			log.Fatalf("listen: failed to create localvqe engine: %v", err)
+		}
+		processor = audio.NewLocalVQEProcessor(engine, sampleRate)
+		log.Printf("listen: LocalVQE AEC enabled (modelRate=%d, deviceRate=%d, hopLength=%d, refSource=%s)",
+			engine.SampleRate(), sampleRate, engine.HopLength(), config.AECRefSource)
+	}
+
+	if processor != nil && config.AECRefSource == AECRefMonitor {
+		if config.AECMonitorDevice == "" {
+			log.Fatalln("listen: VOXINPUT_AEC_REF_SOURCE=monitor requires VOXINPUT_AEC_MONITOR_DEVICE (or --aec-monitor-device)")
+		}
+		monitorConfig := audio.StreamConfig{
+			Format:       malgo.FormatS16,
+			Channels:     1,
+			SampleRate:   sampleRate,
+			MalgoContext: mctx.Context,
+			PeriodMs:     periodMs,
+		}
+		found, err := monitorConfig.SetCaptureDeviceByName(&mctx.Context, config.AECMonitorDevice)
+		if err != nil {
+			log.Fatalln("listen: failed to query monitor capture devices: ", err)
+		}
+		if !found {
+			log.Fatalf("listen: monitor device not found: %s\nRun 'voxinput devices' to list available capture devices.", config.AECMonitorDevice)
+		}
+		config.RefRing = audio.NewInt16Ring(sampleRate) // ~1s buffer
+		monitorCtx, cancelMonitor := context.WithCancel(context.Background())
+		defer cancelMonitor()
+		go func() {
+			if err := audio.CaptureToRing(monitorCtx, config.RefRing, monitorConfig); err != nil &&
+				!errors.Is(err, context.Canceled) {
+				log.Printf("listen: monitor capture ended: %v", err)
+			}
+		}()
+		log.Printf("listen: AEC monitor capture started (device=%q, rate=%d)", config.AECMonitorDevice, sampleRate)
 	}
 
 	rtConf := openairt.DefaultConfig(config.APIKey)
