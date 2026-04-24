@@ -1,0 +1,76 @@
+name: Check upstream updates
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Check LocalVQE submodule and model
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run upstream-updates check
+        id: check
+        run: |
+          set +e
+          ./scripts/check-upstream-updates.sh > report.md
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat report.md
+
+      - name: Fail on script error
+        if: steps.check.outputs.exit_code == '2'
+        run: exit 1
+
+      - name: Find existing tracking issue
+        id: existing
+        if: steps.check.outputs.exit_code != '2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          number=$(gh issue list \
+              --state open \
+              --label upstream-updates \
+              --json number \
+              --jq '.[0].number // empty')
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update tracking issue
+        if: steps.check.outputs.exit_code == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Idempotent — succeeds whether the label already exists or not.
+          gh label create upstream-updates \
+              --color BFD4F2 \
+              --description "Tracks pending LocalVQE submodule / model bumps" \
+              || true
+          {
+              echo "_Last checked: $(date -u +'%Y-%m-%d %H:%M UTC') by [${GITHUB_WORKFLOW} #${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})._"
+              echo
+              cat report.md
+          } > body.md
+
+          if [[ -n "${{ steps.existing.outputs.number }}" ]]; then
+              gh issue edit "${{ steps.existing.outputs.number }}" --body-file body.md
+          else
+              gh issue create \
+                  --title "Upstream updates available for LocalVQE" \
+                  --label upstream-updates \
+                  --body-file body.md
+          fi
+
+      - name: Close tracking issue if up to date
+        if: steps.check.outputs.exit_code == '0' && steps.existing.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close "${{ steps.existing.outputs.number }}" \
+              --comment "All upstreams are now in sync as of $(date -u +'%Y-%m-%d %H:%M UTC')."

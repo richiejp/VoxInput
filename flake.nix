@@ -3,13 +3,13 @@
 
   inputs = {
     nixpkgs.url = "nixpkgs/nixos-unstable";
-    deepvqe-ggml-src = {
-      url = "git+https://github.com/richiejp/deepvqe-ggml?submodules=1";
+    localvqe-src = {
+      url = "git+https://github.com/localai-org/LocalVQE?submodules=1";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, deepvqe-ggml-src }:
+  outputs = { self, nixpkgs, localvqe-src }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -43,17 +43,17 @@
           pkgs = nixpkgsFor.${system};
           lib = pkgs.lib;
           stdenv = pkgs.stdenv;
-          deepvqe-lib = pkgs.stdenv.mkDerivation {
-            pname = "libdeepvqe";
+          localvqe-lib = pkgs.stdenv.mkDerivation {
+            pname = "liblocalvqe";
             version = "0.1.0";
-            src = deepvqe-ggml-src + "/ggml";
+            src = localvqe-src + "/ggml";
             nativeBuildInputs = [ pkgs.cmake ];
-            cmakeFlags = [ "-DDEEPVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
+            cmakeFlags = [ "-DLOCALVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
             installPhase = ''
               mkdir -p $out/lib $out/include
-              cp libdeepvqe.so* $out/lib/ || true
-              cp libdeepvqe.so $out/lib/ || true
-              cp ${deepvqe-ggml-src + "/ggml/deepvqe_api.h"} $out/include/
+              cp liblocalvqe.so* $out/lib/ || true
+              cp liblocalvqe.so $out/lib/ || true
+              cp ${localvqe-src + "/ggml/localvqe_api.h"} $out/include/
             '';
           };
         in
@@ -77,7 +77,7 @@
             buildInputs = with pkgs; [
               libpulseaudio
               dotool
-              deepvqe-lib
+              localvqe-lib
 
               libGL xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
@@ -94,7 +94,7 @@
 
             postFixup = lib.optionalString stdenv.hostPlatform.isElf ''
               patchelf $out/bin/.voxinput-wrapped \
-                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio deepvqe-lib ]}
+                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio localvqe-lib ]}
             '';
 
             meta = with pkgs.lib; {
