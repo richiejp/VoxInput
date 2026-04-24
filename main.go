@@ -373,6 +373,13 @@ Environment variables:
 		return
 	}
 
+	if cmd == "devices" {
+		if err := audio.ListCaptureDevices(); err != nil {
+			log.Fatalln("Failed to enumerate devices:", err)
+		}
+		return
+	}
+
 	id, err := pid.Read(pidPath)
 	if err != nil {
 		log.Fatalln("main: failed to read listener PID: ", err)
@@ -422,13 +429,6 @@ Environment variables:
 			log.Println("main: Currently idle, sending record signal")
 			err = proc.Signal(syscall.SIGUSR1)
 		}
-	case "devices":
-		err := audio.ListCaptureDevices()
-		if err != nil {
-			log.Fatalln("Failed to enumerate devices:", err)
-		}
-
-		return
 	default:
 		log.Fatalln("main: Unknown command: ", os.Args[1])
 	}
