@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
+	"log"
 	"strings"
 
 	"github.com/gen2brain/malgo"
@@ -152,18 +152,29 @@ func Capture(ctx context.Context, w io.Writer, config StreamConfig) error {
 	return stream(ctx, abortChan, config, malgo.Capture, deviceCallbacks)
 }
 
-// resampleS16 resamples 16-bit PCM audio from fromRate to toRate using linear interpolation.
-func rmsS16(buf []byte) float64 {
-	n := len(buf) / 2
-	if n == 0 {
-		return 0
+// CaptureToRing pushes captured samples into the provided ring buffer as
+// int16. Intended to run concurrently with a Duplex stream so the ring
+// can feed a reference signal (e.g. a speaker monitor / loopback device)
+// to an AEC processor. Unlike Capture, this uses its own malgo context
+// so the caller does not need to share one.
+func CaptureToRing(ctx context.Context, ring *Int16Ring, config StreamConfig) error {
+	abortChan := make(chan error)
+	defer close(abortChan)
+	aborted := false
+
+	deviceCallbacks := malgo.DeviceCallbacks{
+		Data: func(outputSamples, inputSamples []byte, frameCount uint32) {
+			if aborted {
+				return
+			}
+			if len(inputSamples) == 0 {
+				return
+			}
+			ring.Write(bytesToS16(inputSamples))
+		},
 	}
-	sum := 0.0
-	for i := 0; i < n; i++ {
-		s := float64(int16(binary.LittleEndian.Uint16(buf[i*2:])))
-		sum += s * s
-	}
-	return math.Sqrt(sum / float64(n))
+
+	return stream(ctx, abortChan, config, malgo.Capture, deviceCallbacks)
 }
 
 // samples is the input audio data as bytes (int16 little-endian).
@@ -211,10 +222,20 @@ type AudioProcessor interface {
 type DuplexOpts struct {
 	// Raw mic samples at the hardware sample rate, before AEC.
 	DumpInput io.Writer
-	// Raw speaker samples at the hardware sample rate, after resampling.
+	// Reference signal as seen by the AEC processor at the hardware sample rate.
+	// In playback-ref mode this equals the far-end TTS buffer fed to the speaker;
+	// in monitor-ref mode this equals the monitor-capture samples.
 	DumpOutput io.Writer
 	// Cleaned mic samples at the hardware sample rate, after AEC processing.
 	DumpProcessed io.Writer
+	// Far-end TTS samples we sent to the speaker. Only populated when
+	// using a monitor ref source, so post-hoc tools can compare what we
+	// intended to play against what the monitor actually captured.
+	DumpTTS io.Writer
+	// Optional ring buffer of int16 samples at the hardware sample rate.
+	// When non-nil, Duplex pulls the AEC reference from this ring
+	// instead of using the TTS buffer it sent to the speaker.
+	RefSource *Int16Ring
 }
 
 // Duplex streams audio from a reader to the playback device and captures audio
@@ -233,6 +254,9 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 	needOutputResample := config.OutputSampleRate != 0 && config.OutputSampleRate != config.SampleRate
 
 	callbackCount := 0
+	var diagInputBytes, diagWrittenBytes, diagProcessorNil int
+	var readBuf []byte
+	var refScratch []int16
 	deviceCallbacks := malgo.DeviceCallbacks{
 		Data: func(outputSamples, inputSamples []byte, frameCount uint32) {
 			if aborted {
@@ -247,15 +271,17 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 					return
 				}
 
-				// Calculate how many bytes we need to read from the reader
-				// based on the resampling ratio
 				bytesToRead := len(outputSamples)
 				if needOutputResample {
 					ratio := float64(config.OutputSampleRate) / float64(config.SampleRate)
 					bytesToRead = int(float64(len(outputSamples)) * ratio)
 				}
 
-				readBuf := make([]byte, bytesToRead)
+				if cap(readBuf) < bytesToRead {
+					readBuf = make([]byte, bytesToRead)
+				} else {
+					readBuf = readBuf[:bytesToRead]
+				}
 				read, err := r.Read(readBuf)
 				if err != nil {
 					if err == io.EOF {
@@ -285,8 +311,26 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 				}
 			}
 
-			if opts != nil && opts.DumpOutput != nil && len(outputSamples) > 0 {
-				opts.DumpOutput.Write(outputSamples)
+			// Decide which signal is the AEC reference: either what we
+			// just pushed to the speaker, or samples pulled from a monitor
+			// capture ring (e.g. for cancelling arbitrary system audio).
+			refSamples := outputSamples
+			if opts != nil && opts.RefSource != nil && len(outputSamples) > 0 {
+				n := len(outputSamples) / 2
+				if cap(refScratch) < n {
+					refScratch = make([]int16, n)
+				} else {
+					refScratch = refScratch[:n]
+				}
+				opts.RefSource.Read(refScratch)
+				refSamples = s16ToBytes(refScratch)
+			}
+
+			if opts != nil && opts.DumpOutput != nil && len(refSamples) > 0 {
+				opts.DumpOutput.Write(refSamples)
+			}
+			if opts != nil && opts.DumpTTS != nil && len(outputSamples) > 0 {
+				opts.DumpTTS.Write(outputSamples)
 			}
 
 			if len(inputSamples) > 0 {
@@ -294,29 +338,39 @@ func Duplex(ctx context.Context, r io.Reader, w io.Writer, config StreamConfig, 
 					opts.DumpInput.Write(inputSamples)
 				}
 
+				diagInputBytes += len(inputSamples)
 				samplesToWrite := inputSamples
 
-				if processor != nil && len(outputSamples) > 0 {
-					cleaned := processor.Process(inputSamples, outputSamples)
-					if len(cleaned) > 0 {
+				if processor != nil && len(refSamples) > 0 {
+					cleaned := processor.Process(inputSamples, refSamples)
+					if cleaned != nil {
 						samplesToWrite = cleaned
 						if opts != nil && opts.DumpProcessed != nil {
 							opts.DumpProcessed.Write(cleaned)
 						}
 					} else {
-						return
+						diagProcessorNil++
+						samplesToWrite = nil
 					}
 				}
 
-				if needInputResample {
-					samplesToWrite = resampleS16(samplesToWrite, config.SampleRate, config.InputSampleRate)
+				if len(samplesToWrite) > 0 {
+					if needInputResample {
+						samplesToWrite = resampleS16(samplesToWrite, config.SampleRate, config.InputSampleRate)
+					}
+					diagWrittenBytes += len(samplesToWrite)
+					_, err := w.Write(samplesToWrite)
+					if err != nil {
+						aborted = true
+						abortChan <- err
+						return
+					}
 				}
-				_, err := w.Write(samplesToWrite)
-				if err != nil {
-					aborted = true
-					abortChan <- err
-					return
-				}
+			}
+
+			if callbackCount%100 == 0 {
+				log.Printf("Duplex: callbacks=%d inputBytes=%d writtenBytes=%d processorNil=%d",
+					callbackCount, diagInputBytes, diagWrittenBytes, diagProcessorNil)
 			}
 		},
 	}

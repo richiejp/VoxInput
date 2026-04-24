@@ -88,8 +88,10 @@ Environment variables:
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   VOXINPUT_ENABLE_AEC - Enable acoustic echo cancellation in assistant mode (yes/no, default: yes)
-  VOXINPUT_DEEPVQE_MODEL - Path to DeepVQE GGUF model file (default: auto-download to $XDG_DATA_HOME/voxinput/deepvqe.gguf)
-  VOXINPUT_DEEPVQE_LIB - Path to libdeepvqe.so (default: system library path)
+  VOXINPUT_LOCALVQE_MODEL - Path to LocalVQE GGUF model file (default: share/voxinput/localvqe.gguf next to the binary)
+  VOXINPUT_LOCALVQE_LIB - Path to liblocalvqe.so (default: next to the binary or system library path)
+  VOXINPUT_AEC_REF_SOURCE - AEC reference signal: 'playback' (far-end TTS buffer, default) or 'monitor' (samples from a loopback capture device)
+  VOXINPUT_AEC_MONITOR_DEVICE - Capture device name feeding the AEC reference when AEC_REF_SOURCE=monitor (e.g. "Monitor of <sink>" on PipeWire, a BlackHole/Loopback device on macOS; use 'devices' to list)
   VOXINPUT_DUMP_AUDIO_DIR - Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
   VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
   VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
@@ -142,8 +144,10 @@ Environment variables:
 		inputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "INPUT_SAMPLE_RATE", "24000")
 		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
 		dumpAudioDir := getPrefixedEnv([]string{"VOXINPUT"}, "DUMP_AUDIO_DIR", "")
-		deepvqeModelPath := getPrefixedEnv([]string{"VOXINPUT"}, "DEEPVQE_MODEL", "")
-		deepvqeLibPath := getPrefixedEnv([]string{"VOXINPUT"}, "DEEPVQE_LIB", "")
+		localvqeModelPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_MODEL", "")
+		localvqeLibPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_LIB", "")
+		aecRefSourceStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_REF_SOURCE", "playback")
+		aecMonitorDevice := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_MONITOR_DEVICE", "")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 		socketPath := getPrefixedEnv([]string{"VOXINPUT"}, "SOCKET", "")
@@ -270,6 +274,33 @@ Environment variables:
 			}
 		}
 
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--aec-ref-source" && i+1 < len(os.Args) {
+				aecRefSourceStr = os.Args[i+1]
+				break
+			}
+		}
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--aec-monitor-device" && i+1 < len(os.Args) {
+				aecMonitorDevice = os.Args[i+1]
+				break
+			}
+		}
+
+		var aecRefSource AECRefSource
+		switch aecRefSourceStr {
+		case string(AECRefPlayback):
+			aecRefSource = AECRefPlayback
+		case string(AECRefMonitor):
+			aecRefSource = AECRefMonitor
+		default:
+			log.Fatalf("main: invalid --aec-ref-source %q (expected %q or %q)",
+				aecRefSourceStr, AECRefPlayback, AECRefMonitor)
+		}
+
 		// Create input controller for keyboard/mouse simulation.
 		// Only required when we need to type text (no output file) or use input control in assistant mode.
 		var inputCtrl input.Controller
@@ -323,11 +354,13 @@ Environment variables:
 					ScreenshotFile:    screenshotFile,
 					InputSampleRate:   inputSampleRate,
 					OutputSampleRate:  outputSampleRate,
-					EnableAEC:        enableAEC,
-					DeepVQEModelPath: deepvqeModelPath,
-					DeepVQELibPath:   deepvqeLibPath,
-					DumpAudioDir:     dumpAudioDir,
-					IPCServer:        ipcServer,
+					EnableAEC:         enableAEC,
+					LocalVQEModelPath: localvqeModelPath,
+					LocalVQELibPath:   localvqeLibPath,
+					AECRefSource:      aecRefSource,
+					AECMonitorDevice:  aecMonitorDevice,
+					DumpAudioDir:      dumpAudioDir,
+					IPCServer:         ipcServer,
 				})
 				cancel()
 			}()

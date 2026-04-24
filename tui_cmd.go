@@ -50,22 +50,44 @@ func tuiCommand(args []string) {
 	cmd := exec.Command(executable, cmdArgs...)
 	cmd.Env = os.Environ()
 
-	stdoutPipe, err := cmd.StdoutPipe()
+	// Create pipes manually instead of using cmd.StdoutPipe/StderrPipe
+	// so that cmd.Wait() doesn't close our read ends. This lets us
+	// read stderr after the process exits for early-crash diagnostics.
+	stdoutRead, stdoutWrite, err := os.Pipe()
 	if err != nil {
 		log.Fatalln("tui: failed to create stdout pipe:", err)
 	}
-	stderrPipe, err := cmd.StderrPipe()
+	stderrRead, stderrWrite, err := os.Pipe()
 	if err != nil {
 		log.Fatalln("tui: failed to create stderr pipe:", err)
 	}
+	cmd.Stdout = stdoutWrite
+	cmd.Stderr = stderrWrite
 
 	if err := cmd.Start(); err != nil {
 		log.Fatalln("tui: failed to start listen subprocess:", err)
 	}
+	stdoutWrite.Close()
+	stderrWrite.Close()
 
-	// Wait for socket to appear
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+
+	// Wait for socket to appear, checking for early subprocess exit.
 	var client *ipc.Client
 	for i := 0; i < 50; i++ {
+		select {
+		case waitErr := <-exited:
+			remaining, _ := io.ReadAll(stderrRead)
+			if len(remaining) > 0 {
+				fmt.Fprintf(os.Stderr, "%s", remaining)
+			}
+			if waitErr != nil {
+				log.Fatalln("tui: listen subprocess exited early:", waitErr)
+			}
+			log.Fatalln("tui: listen subprocess exited before creating socket")
+		default:
+		}
 		time.Sleep(100 * time.Millisecond)
 		client, err = ipc.Connect(socketPath)
 		if err == nil {
@@ -73,27 +95,28 @@ func tuiCommand(args []string) {
 		}
 	}
 	if client == nil {
-		remaining, _ := io.ReadAll(stderrPipe)
+		cmd.Process.Kill()
+		<-exited
+		remaining, _ := io.ReadAll(stderrRead)
 		if len(remaining) > 0 {
-			fmt.Fprintf(os.Stderr, "listen subprocess stderr:\n%s", remaining)
+			fmt.Fprintf(os.Stderr, "%s", remaining)
 		}
 		log.Fatalln("tui: failed to connect to listen subprocess:", err)
 	}
 
 	// Run TUI
-	tuiErr := tui.Run(client, stdoutPipe, stderrPipe)
+	tuiErr := tui.Run(client, stdoutRead, stderrRead)
 	client.Close()
+	stdoutRead.Close()
+	stderrRead.Close()
 
 	// Clean up subprocess
 	cmd.Process.Signal(syscall.SIGTERM)
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
 	select {
-	case <-done:
+	case <-exited:
 	case <-time.After(5 * time.Second):
 		cmd.Process.Kill()
-		<-done
+		<-exited
 	}
 
 	if tuiErr != nil {

@@ -1,3 +1,3 @@
-[submodule "deepvqe-ggml"]
-	path = deepvqe-ggml
-	url = https://github.com/richiejp/deepvqe-ggml.git
+[submodule "LocalVQE"]
+	path = LocalVQE
+	url = https://github.com/localai-org/LocalVQE.git
