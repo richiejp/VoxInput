@@ -1,5 +1,23 @@
 {
   "nodes": {
+    "localvqe-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1776977066,
+        "narHash": "sha256-yICyR9gXpP7njhAK9mLL2TUaZeMi7n432VnwN/mq8aU=",
+        "ref": "refs/heads/main",
+        "rev": "8fffd1c421ca9e6d2f9e2b4220e9dbbfd335184e",
+        "revCount": 6,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/localai-org/LocalVQE"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/localai-org/LocalVQE"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1767767207,
@@ -17,6 +35,7 @@
     },
     "root": {
       "inputs": {
+        "localvqe-src": "localvqe-src",
         "nixpkgs": "nixpkgs"
       }
     }

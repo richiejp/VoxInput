@@ -50,7 +50,6 @@ func main() {
            --instructions <text> System prompt for the assistant model
            --no-dotool (assistant mode only) Disable the dotool function call
            --no-aec (assistant mode only) Disable acoustic echo cancellation
-           --aec-filter-ms <ms> (assistant mode only) AEC filter length in milliseconds (default: 500)
            --screenshot-command <cmd> (assistant mode only) Command to capture a screenshot (e.g. "grim /tmp/screenshot.png")
            --screenshot-file <path> (assistant mode only) Path where the screenshot command saves its output
            --dump-audio <dir> (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
@@ -89,8 +88,10 @@ Environment variables:
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   VOXINPUT_ENABLE_AEC - Enable acoustic echo cancellation in assistant mode (yes/no, default: yes)
-  VOXINPUT_AEC_FILTER_MS - AEC filter length in milliseconds (default: 200)
-  VOXINPUT_AEC_DELAY_MS - AEC reference delay in milliseconds to compensate acoustic path delay (default: 50)
+  VOXINPUT_LOCALVQE_MODEL - Path to LocalVQE GGUF model file (default: share/voxinput/localvqe.gguf next to the binary)
+  VOXINPUT_LOCALVQE_LIB - Path to liblocalvqe.so (default: next to the binary or system library path)
+  VOXINPUT_AEC_REF_SOURCE - AEC reference signal: 'playback' (far-end TTS buffer, default) or 'monitor' (samples from a loopback capture device)
+  VOXINPUT_AEC_MONITOR_DEVICE - Capture device name feeding the AEC reference when AEC_REF_SOURCE=monitor (e.g. "Monitor of <sink>" on PipeWire, a BlackHole/Loopback device on macOS; use 'devices' to list)
   VOXINPUT_DUMP_AUDIO_DIR - Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
   VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
   VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
@@ -143,8 +144,10 @@ Environment variables:
 		inputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "INPUT_SAMPLE_RATE", "24000")
 		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
 		dumpAudioDir := getPrefixedEnv([]string{"VOXINPUT"}, "DUMP_AUDIO_DIR", "")
-		aecFilterMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_FILTER_MS", "200")
-		aecDelayMsStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_DELAY_MS", "50")
+		localvqeModelPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_MODEL", "")
+		localvqeLibPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_LIB", "")
+		aecRefSourceStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_REF_SOURCE", "playback")
+		aecMonitorDevice := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_MONITOR_DEVICE", "")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 		socketPath := getPrefixedEnv([]string{"VOXINPUT"}, "SOCKET", "")
@@ -167,18 +170,6 @@ Environment variables:
 		if err != nil {
 			log.Println("main: failed to parse output sample rate", err)
 			outputSampleRate = 24000
-		}
-
-		aecFilterMs, err := strconv.Atoi(aecFilterMsStr)
-		if err != nil {
-			log.Println("main: failed to parse AEC filter length", err)
-			aecFilterMs = 200
-		}
-
-		aecDelayMs, err := strconv.Atoi(aecDelayMsStr)
-		if err != nil {
-			log.Println("main: failed to parse AEC delay", err)
-			aecDelayMs = 0
 		}
 
 		if lang != "" {
@@ -277,20 +268,37 @@ Environment variables:
 
 		for i := 2; i < len(os.Args); i++ {
 			arg := os.Args[i]
-			if arg == "--aec-filter-ms" && i+1 < len(os.Args) {
-				if v, err := strconv.Atoi(os.Args[i+1]); err == nil {
-					aecFilterMs = v
-				}
+			if arg == "--socket" && i+1 < len(os.Args) {
+				socketPath = os.Args[i+1]
 				break
 			}
 		}
 
 		for i := 2; i < len(os.Args); i++ {
 			arg := os.Args[i]
-			if arg == "--socket" && i+1 < len(os.Args) {
-				socketPath = os.Args[i+1]
+			if arg == "--aec-ref-source" && i+1 < len(os.Args) {
+				aecRefSourceStr = os.Args[i+1]
 				break
 			}
+		}
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--aec-monitor-device" && i+1 < len(os.Args) {
+				aecMonitorDevice = os.Args[i+1]
+				break
+			}
+		}
+
+		var aecRefSource AECRefSource
+		switch aecRefSourceStr {
+		case string(AECRefPlayback):
+			aecRefSource = AECRefPlayback
+		case string(AECRefMonitor):
+			aecRefSource = AECRefMonitor
+		default:
+			log.Fatalf("main: invalid --aec-ref-source %q (expected %q or %q)",
+				aecRefSourceStr, AECRefPlayback, AECRefMonitor)
 		}
 
 		// Create input controller for keyboard/mouse simulation.
@@ -347,10 +355,12 @@ Environment variables:
 					InputSampleRate:   inputSampleRate,
 					OutputSampleRate:  outputSampleRate,
 					EnableAEC:         enableAEC,
-				AECFilterMs:       aecFilterMs,
-				AECDelayMs:        aecDelayMs,
-				DumpAudioDir:      dumpAudioDir,
-				IPCServer:         ipcServer,
+					LocalVQEModelPath: localvqeModelPath,
+					LocalVQELibPath:   localvqeLibPath,
+					AECRefSource:      aecRefSource,
+					AECMonitorDevice:  aecMonitorDevice,
+					DumpAudioDir:      dumpAudioDir,
+					IPCServer:         ipcServer,
 				})
 				cancel()
 			}()
@@ -360,6 +370,13 @@ Environment variables:
 			listenOld(pidPath, apiKey, httpApiBase, lang, model, prompt, replay, timeout, inputCtrl)
 		}
 
+		return
+	}
+
+	if cmd == "devices" {
+		if err := audio.ListCaptureDevices(); err != nil {
+			log.Fatalln("Failed to enumerate devices:", err)
+		}
 		return
 	}
 
@@ -412,13 +429,6 @@ Environment variables:
 			log.Println("main: Currently idle, sending record signal")
 			err = proc.Signal(syscall.SIGUSR1)
 		}
-	case "devices":
-		err := audio.ListCaptureDevices()
-		if err != nil {
-			log.Fatalln("Failed to enumerate devices:", err)
-		}
-
-		return
 	default:
 		log.Fatalln("main: Unknown command: ", os.Args[1])
 	}

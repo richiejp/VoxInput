@@ -95,7 +95,11 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_OUTPUT_SAMPLE_RATE`: Sample rate for audio output in Hz (default: 24000). Used for realtime API output and audio playback.
 - `VOXINPUT_AEC_FILTER_MS`: AEC filter length in milliseconds (default: 200).
 - `VOXINPUT_AEC_DELAY_MS`: AEC reference delay in milliseconds to compensate for acoustic path delay between speaker and mic (default: 50). Use the dump+shift analysis test to find the optimal value for your setup.
-- `VOXINPUT_DUMP_AUDIO_DIR`: Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
+- `VOXINPUT_LOCALVQE_MODEL`: Path to the LocalVQE GGUF model file (default: `share/voxinput/localvqe.gguf` next to the binary; installed by the CMake build).
+- `VOXINPUT_LOCALVQE_LIB`: Path to `liblocalvqe.so` / `liblocalvqe.dylib` (default: next to the binary or the system library path).
+- `VOXINPUT_AEC_REF_SOURCE`: AEC reference signal source — `playback` (far-end TTS buffer we send to the speaker, default) or `monitor` (samples captured from a loopback device so AEC can also cancel system audio from other apps). Also settable via `--aec-ref-source`.
+- `VOXINPUT_AEC_MONITOR_DEVICE`: Name of the capture device that feeds the AEC reference when `AEC_REF_SOURCE=monitor`. On PipeWire/PulseAudio this is usually `"Monitor of <sink>"`; on macOS this requires a virtual loopback such as [BlackHole](https://github.com/ExistentialAudio/BlackHole) or Loopback routing system output to a capture device. Use the `devices` subcommand to list capture devices. Also settable via `--aec-monitor-device`.
+- `VOXINPUT_DUMP_AUDIO_DIR`: Directory to dump raw mic/speaker PCM for AEC analysis (default: none). In monitor mode, an extra `tts.raw` is dumped alongside `spk.raw` so the far-end TTS can be compared against what the monitor actually captured.
 - `VOXINPUT_SOCKET`: Socket path for IPC server (default: `$XDG_RUNTIME_DIR/VoxInput.sock` when using `tui` subcommand)
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
 

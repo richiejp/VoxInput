@@ -1,0 +1,3 @@
+[submodule "LocalVQE"]
+	path = LocalVQE
+	url = https://github.com/localai-org/LocalVQE.git

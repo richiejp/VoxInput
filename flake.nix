@@ -1,9 +1,15 @@
 {
   description = "VoxInput";
 
-  inputs.nixpkgs.url = "nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "nixpkgs/nixos-unstable";
+    localvqe-src = {
+      url = "git+https://github.com/localai-org/LocalVQE?submodules=1";
+      flake = false;
+    };
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, localvqe-src }:
     let
       supportedSystems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
@@ -24,11 +30,11 @@
 
               libpulseaudio
               dotool
-              speexdsp
+              cmake
 
               libGL pkg-config xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
-            LD_LIBRARY_PATH = "${pkgs.libpulseaudio}/lib";
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libpulseaudio ];
           };
         });
 
@@ -37,6 +43,19 @@
           pkgs = nixpkgsFor.${system};
           lib = pkgs.lib;
           stdenv = pkgs.stdenv;
+          localvqe-lib = pkgs.stdenv.mkDerivation {
+            pname = "liblocalvqe";
+            version = "0.1.0";
+            src = localvqe-src + "/ggml";
+            nativeBuildInputs = [ pkgs.cmake ];
+            cmakeFlags = [ "-DLOCALVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
+            installPhase = ''
+              mkdir -p $out/lib $out/include
+              cp liblocalvqe.so* $out/lib/ || true
+              cp liblocalvqe.so $out/lib/ || true
+              cp ${localvqe-src + "/ggml/localvqe_api.h"} $out/include/
+            '';
+          };
         in
         {
           default = pkgs.buildGoModule {
@@ -47,7 +66,7 @@
             # Path to the source code
             src = ./.;
 
-            vendorHash = "sha256-DjZNaJk1bPLWsytVPFE1MvW4cl+/r+me0xnewIkBrf0=";
+            vendorHash = "sha256-f6eVtsxwsTmdxxgjsWWQXCfAsFO6OUDWUNPraxZfsb4=";
 
             nativeBuildInputs = with pkgs; [
               makeWrapper
@@ -58,7 +77,7 @@
             buildInputs = with pkgs; [
               libpulseaudio
               dotool
-              speexdsp
+              localvqe-lib
 
               libGL xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
             ];
@@ -75,7 +94,7 @@
 
             postFixup = lib.optionalString stdenv.hostPlatform.isElf ''
               patchelf $out/bin/.voxinput-wrapped \
-                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio ]}
+                --add-rpath ${lib.makeLibraryPath [ pkgs.libpulseaudio localvqe-lib ]}
             '';
 
             meta = with pkgs.lib; {
