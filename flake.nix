@@ -66,7 +66,7 @@
             # Path to the source code
             src = ./.;
 
-            vendorHash = null; # will need updating after go mod tidy
+            vendorHash = "sha256-f6eVtsxwsTmdxxgjsWWQXCfAsFO6OUDWUNPraxZfsb4=";
 
             nativeBuildInputs = with pkgs; [
               makeWrapper

@@ -1,21 +1,21 @@
 {
   "nodes": {
-    "deepvqe-ggml-src": {
+    "localvqe-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1773779655,
-        "narHash": "sha256-zmtht7PFhfOtw1dFK+TWNrsDObrkbZmphzidnj3io4U=",
+        "lastModified": 1776977066,
+        "narHash": "sha256-yICyR9gXpP7njhAK9mLL2TUaZeMi7n432VnwN/mq8aU=",
         "ref": "refs/heads/main",
-        "rev": "e80a6c761c680a35d4d32d595222ae054236890c",
-        "revCount": 18,
+        "rev": "8fffd1c421ca9e6d2f9e2b4220e9dbbfd335184e",
+        "revCount": 6,
         "submodules": true,
         "type": "git",
-        "url": "https://github.com/richiejp/deepvqe-ggml"
+        "url": "https://github.com/localai-org/LocalVQE"
       },
       "original": {
         "submodules": true,
         "type": "git",
-        "url": "https://github.com/richiejp/deepvqe-ggml"
+        "url": "https://github.com/localai-org/LocalVQE"
       }
     },
     "nixpkgs": {
@@ -35,7 +35,7 @@
     },
     "root": {
       "inputs": {
-        "deepvqe-ggml-src": "deepvqe-ggml-src",
+        "localvqe-src": "localvqe-src",
         "nixpkgs": "nixpkgs"
       }
     }
