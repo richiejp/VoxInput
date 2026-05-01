@@ -12,22 +12,26 @@ type mockEngine struct {
 	callCount  int
 }
 
-func (m *mockEngine) ProcessFrameS16(mic, ref []int16) ([]int16, error) {
+func (m *mockEngine) ProcessFrameS16Into(mic, ref, out []int16) error {
 	m.callCount++
-	out := make([]int16, len(mic))
 	if m.callCount == 1 {
-		return out, nil
+		for i := range out {
+			out[i] = 0
+		}
+		return nil
 	}
 	copy(out, mic)
-	return out, nil
+	return nil
 }
 
 func (m *mockEngine) SampleRate() int { return m.sampleRate }
 func (m *mockEngine) HopLength() int  { return m.hopLength }
 
+const testMaxBytes = 8192
+
 func newMockProcessor(deviceRate int) (*localvqeProcessor, *mockEngine) {
 	e := &mockEngine{sampleRate: 16000, hopLength: 256}
-	p := NewLocalVQEProcessor(e, deviceRate)
+	p := NewLocalVQEProcessor(e, deviceRate, testMaxBytes)
 	return p, e
 }
 
@@ -39,6 +43,19 @@ func makeSineS16(n int, freq, rate float64) []int16 {
 	return out
 }
 
+// runProcess is a test helper that invokes Process with a fresh output buffer
+// sized to hold the worst-case cleaned output.
+func runProcess(p *localvqeProcessor, input, ref []byte) []byte {
+	out := make([]byte, testMaxBytes*2)
+	n := p.Process(input, ref, out)
+	if n == 0 {
+		return nil
+	}
+	result := make([]byte, n)
+	copy(result, out[:n])
+	return result
+}
+
 // --- Processor tests ---
 
 func TestProcess_BufferingReturnsNil(t *testing.T) {
@@ -46,7 +63,7 @@ func TestProcess_BufferingReturnsNil(t *testing.T) {
 	// 100 samples < 256 hop
 	input := s16ToBytes(make([]int16, 100))
 	ref := s16ToBytes(make([]int16, 100))
-	got := p.Process(input, ref)
+	got := runProcess(p, input, ref)
 	if got != nil {
 		t.Errorf("expected nil during buffering, got %d bytes", len(got))
 	}
@@ -56,7 +73,7 @@ func TestProcess_OneHopProducesOutput(t *testing.T) {
 	p, _ := newMockProcessor(16000)
 	input := s16ToBytes(make([]int16, 256))
 	ref := s16ToBytes(make([]int16, 256))
-	got := p.Process(input, ref)
+	got := runProcess(p, input, ref)
 	if got == nil {
 		t.Fatal("expected output after one full hop, got nil")
 	}
@@ -70,7 +87,7 @@ func TestProcess_MultipleHopsPerCall(t *testing.T) {
 	p, _ := newMockProcessor(16000)
 	input := s16ToBytes(make([]int16, 640))
 	ref := s16ToBytes(make([]int16, 640))
-	got := p.Process(input, ref)
+	got := runProcess(p, input, ref)
 	if got == nil {
 		t.Fatal("expected output, got nil")
 	}
@@ -86,7 +103,7 @@ func TestProcess_WithResampling(t *testing.T) {
 	// 480 samples at 24kHz -> 320 at 16kHz -> 1 hop (256) with 64 remainder
 	input := s16ToBytes(make([]int16, 480))
 	ref := s16ToBytes(make([]int16, 480))
-	got := p.Process(input, ref)
+	got := runProcess(p, input, ref)
 	if got == nil {
 		t.Fatal("expected output after resampled input exceeds one hop, got nil")
 	}
@@ -107,16 +124,15 @@ func TestProcess_TotalSampleConservation(t *testing.T) {
 		ref := s16ToBytes(make([]int16, samplesPerCallback))
 		totalInputSamples += samplesPerCallback
 
-		got := p.Process(input, ref)
+		got := runProcess(p, input, ref)
 		if got != nil {
 			totalOutputSamples += len(got) / 2
 		}
 	}
 
 	// Resampling 24->16->24 should approximately conserve sample count.
-	// Allow tolerance for rounding and initial buffering delay.
 	diff := totalInputSamples - totalOutputSamples
-	maxDrift := samplesPerCallback // at most one callback's worth of buffered remainder
+	maxDrift := samplesPerCallback
 	if diff < 0 || diff > maxDrift {
 		t.Errorf("sample count drift too large: input=%d output=%d diff=%d (max allowed %d)",
 			totalInputSamples, totalOutputSamples, diff, maxDrift)
@@ -129,7 +145,7 @@ func TestProcess_NonZeroInputProducesNonZeroOutput(t *testing.T) {
 	// First hop: warmup, engine returns zeros
 	sine := makeSineS16(256, 1000, 16000)
 	ref := make([]int16, 256)
-	got := p.Process(s16ToBytes(sine), s16ToBytes(ref))
+	got := runProcess(p, s16ToBytes(sine), s16ToBytes(ref))
 	if got == nil {
 		t.Fatal("expected output on first hop")
 	}
@@ -138,7 +154,7 @@ func TestProcess_NonZeroInputProducesNonZeroOutput(t *testing.T) {
 	}
 
 	// Second hop: engine returns mic passthrough
-	got = p.Process(s16ToBytes(sine), s16ToBytes(ref))
+	got = runProcess(p, s16ToBytes(sine), s16ToBytes(ref))
 	if got == nil {
 		t.Fatal("expected output on second hop")
 	}
@@ -146,6 +162,28 @@ func TestProcess_NonZeroInputProducesNonZeroOutput(t *testing.T) {
 	rms := rmsS16Samples(outSamples)
 	if rms == 0 {
 		t.Error("expected non-zero RMS output after warmup")
+	}
+}
+
+// TestProcess_ZeroAllocations asserts that Process does not allocate on the
+// hot path once warmed up.
+func TestProcess_ZeroAllocations(t *testing.T) {
+	p, _ := newMockProcessor(24000)
+	input := s16ToBytes(make([]int16, 480))
+	ref := s16ToBytes(make([]int16, 480))
+	out := make([]byte, testMaxBytes*2)
+
+	// Warm up: drive through the first-hop branch, any lazy growth, and
+	// the log-diagnostics branch once.
+	for range 600 {
+		p.Process(input, ref, out)
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		p.Process(input, ref, out)
+	})
+	if allocs > 0 {
+		t.Errorf("expected 0 allocs per call, got %.2f", allocs)
 	}
 }
 

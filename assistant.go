@@ -108,6 +108,29 @@ func (l *Listener) startAssistantSession(ctx context.Context) error {
 }
 
 func (l *Listener) runAudioAssistant() {
+	// Spin up the off-callback AEC worker if the duplex path has been wired
+	// to delegate through mic/ref rings. Keeps neural inference off the
+	// realtime audio thread so it can't block the speaker deadline.
+	if l.processor != nil && l.aecMicRing != nil && l.aecRefRing != nil {
+		outputRate := l.config.InputSampleRate
+		if outputRate == 0 {
+			outputRate = l.streamConfig.SampleRate
+		}
+		workerOpts := &audio.AECWorkerOpts{
+			DumpProcessed: l.aecDumpProcessed,
+		}
+		audio.NewAECWorker(
+			l.ctx,
+			l.processor,
+			l.aecMicRing,
+			l.aecRefRing,
+			l.streamConfig.SampleRate,
+			outputRate,
+			l.chunkWriter,
+			workerOpts,
+		)
+	}
+
 	if err := audio.Duplex(l.ctx, l.playReader, l.chunkWriter, l.streamConfig, l.processor, l.duplexOpts); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) {
 			return
