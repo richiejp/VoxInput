@@ -92,6 +92,8 @@ Environment variables:
   VOXINPUT_LOCALVQE_LIB - Path to liblocalvqe.so (default: next to the binary or system library path)
   VOXINPUT_AEC_REF_SOURCE - AEC reference signal: 'playback' (far-end TTS buffer, default) or 'monitor' (samples from a loopback capture device)
   VOXINPUT_AEC_MONITOR_DEVICE - Capture device name feeding the AEC reference when AEC_REF_SOURCE=monitor (e.g. "Monitor of <sink>" on PipeWire, a BlackHole/Loopback device on macOS; use 'devices' to list)
+  VOXINPUT_AEC_NOISE_GATE - Enable LocalVQE residual-echo noise gate (yes/no, default: no). Mutes hops whose RMS sits at or below the threshold; useful when the model's quiet residual is audible during far-end-only stretches. Also settable via --aec-noise-gate / --no-aec-noise-gate.
+  VOXINPUT_AEC_NOISE_GATE_DBFS - Noise gate threshold in dBFS (default: -45.0). Lower = gates fewer frames; higher (less negative) = gates more aggressively but may clip quiet near-end speech. Also settable via --aec-noise-gate-dbfs.
   VOXINPUT_DUMP_AUDIO_DIR - Directory to dump raw mic/speaker PCM for AEC analysis (default: none)
   VOXINPUT_INPUT_SAMPLE_RATE - Sample rate for audio input/recording in Hz (default: 24000)
   VOXINPUT_OUTPUT_SAMPLE_RATE - Sample rate for audio output/playback in Hz (default: 24000)
@@ -148,6 +150,8 @@ Environment variables:
 		localvqeLibPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_LIB", "")
 		aecRefSourceStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_REF_SOURCE", "playback")
 		aecMonitorDevice := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_MONITOR_DEVICE", "")
+		aecNoiseGateStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_NOISE_GATE", "no")
+		aecNoiseGateDBFSStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_NOISE_GATE_DBFS", "-45.0")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
 		socketPath := getPrefixedEnv([]string{"VOXINPUT"}, "SOCKET", "")
@@ -290,6 +294,28 @@ Environment variables:
 			}
 		}
 
+		if slices.Contains(os.Args[2:], "--aec-noise-gate") {
+			aecNoiseGateStr = "yes"
+		}
+		if slices.Contains(os.Args[2:], "--no-aec-noise-gate") {
+			aecNoiseGateStr = "no"
+		}
+		aecNoiseGate := !(aecNoiseGateStr == "no" || aecNoiseGateStr == "false")
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--aec-noise-gate-dbfs" && i+1 < len(os.Args) {
+				aecNoiseGateDBFSStr = os.Args[i+1]
+				break
+			}
+		}
+		aecNoiseGateDBFS64, err := strconv.ParseFloat(aecNoiseGateDBFSStr, 32)
+		if err != nil {
+			log.Printf("main: failed to parse VOXINPUT_AEC_NOISE_GATE_DBFS=%q, using -45.0: %v", aecNoiseGateDBFSStr, err)
+			aecNoiseGateDBFS64 = -45.0
+		}
+		aecNoiseGateDBFS := float32(aecNoiseGateDBFS64)
+
 		var aecRefSource AECRefSource
 		switch aecRefSourceStr {
 		case string(AECRefPlayback):
@@ -359,6 +385,8 @@ Environment variables:
 					LocalVQELibPath:   localvqeLibPath,
 					AECRefSource:      aecRefSource,
 					AECMonitorDevice:  aecMonitorDevice,
+					AECNoiseGate:      aecNoiseGate,
+					AECNoiseGateDBFS:  aecNoiseGateDBFS,
 					DumpAudioDir:      dumpAudioDir,
 					IPCServer:         ipcServer,
 				})

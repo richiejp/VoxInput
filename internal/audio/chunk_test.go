@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 func TestChunkWriter_FlushesAfter250ms(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 10)
-	w := newChunkWriter(ctx, ch)
+	w := NewChunkWriter(ctx, ch)
 
 	data := []byte("hello")
 	w.Write(data)
@@ -42,7 +42,7 @@ func TestChunkWriter_FlushesAfter250ms(t *testing.T) {
 func TestChunkWriter_Flush(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 10)
-	w := newChunkWriter(ctx, ch)
+	w := NewChunkWriter(ctx, ch)
 
 	// Write 100 bytes, wait for flush
 	first := make([]byte, 100)
@@ -85,7 +85,7 @@ done:
 func TestChunkReader_NonBlocking(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 10)
-	r := newChunkReader(ctx, ch)
+	r := NewChunkReader(ctx, ch, 0)
 
 	buf := make([]byte, 100)
 	n, err := r.Read(buf)
@@ -105,7 +105,7 @@ func TestChunkReader_NonBlocking(t *testing.T) {
 func TestChunkReader_CrossChunkBoundary(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 10)
-	r := newChunkReader(ctx, ch)
+	r := NewChunkReader(ctx, ch, 0)
 
 	ch <- bytes.NewBuffer([]byte("hello"))
 	ch <- bytes.NewBuffer([]byte("world"))
@@ -132,7 +132,7 @@ func TestChunkReader_CrossChunkBoundary(t *testing.T) {
 func TestChunkReader_DataIntegrity(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 10)
-	r := newChunkReader(ctx, ch)
+	r := NewChunkReader(ctx, ch, 0)
 
 	patterns := [][]byte{
 		{0x01, 0x02, 0x03},
@@ -171,7 +171,7 @@ func TestChunkReader_DataIntegrity(t *testing.T) {
 func TestChunkReader_PartialFillFromDevice(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 10)
-	r := newChunkReader(ctx, ch)
+	r := NewChunkReader(ctx, ch, 0)
 
 	// Two small chunks available (simulating two audio deltas)
 	ch <- bytes.NewBuffer(make([]byte, 200))
@@ -193,11 +193,50 @@ func TestChunkReader_PartialFillFromDevice(t *testing.T) {
 	}
 }
 
+// TestChunkReader_JitterPreroll holds playback silent until the configured
+// pre-roll threshold is reached, then unblocks. After underrun it re-buffers.
+func TestChunkReader_JitterPreroll(t *testing.T) {
+	ctx := context.Background()
+	ch := make(chan *bytes.Buffer, 10)
+	r := NewChunkReader(ctx, ch, 300)
+
+	ch <- bytes.NewBuffer(make([]byte, 100))
+
+	buf := make([]byte, 500)
+	n, _ := r.Read(buf)
+	if n != 0 {
+		t.Errorf("preroll: expected 0 bytes (only 100 buffered, threshold 300), got %d", n)
+	}
+
+	ch <- bytes.NewBuffer(make([]byte, 250))
+	n, _ = r.Read(buf)
+	if n != 350 {
+		t.Errorf("after preroll: expected 350 bytes, got %d", n)
+	}
+
+	n, _ = r.Read(buf)
+	if n != 0 {
+		t.Errorf("after drain: expected 0 bytes, got %d", n)
+	}
+
+	ch <- bytes.NewBuffer(make([]byte, 100))
+	n, _ = r.Read(buf)
+	if n != 0 {
+		t.Errorf("re-buffer: expected 0 bytes (only 100 buffered, threshold 300), got %d", n)
+	}
+
+	ch <- bytes.NewBuffer(make([]byte, 250))
+	n, _ = r.Read(buf)
+	if n != 350 {
+		t.Errorf("after re-buffer: expected 350 bytes, got %d", n)
+	}
+}
+
 func TestChunkWriterReader_Integration(t *testing.T) {
 	ctx := context.Background()
 	ch := make(chan *bytes.Buffer, 100)
-	w := newChunkWriter(ctx, ch)
-	r := newChunkReader(ctx, ch)
+	w := NewChunkWriter(ctx, ch)
+	r := NewChunkReader(ctx, ch, 0)
 
 	// Write several chunks with time gaps to trigger flushes
 	var allWritten []byte

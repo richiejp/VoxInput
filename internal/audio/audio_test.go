@@ -54,23 +54,20 @@ func TestDuplexCallback_NoDoubleSend(t *testing.T) {
 	var writer bytes.Buffer
 	totalInputBytes := 0
 
+	// Caller-owned output buffer, sized for the worst case (one callback's
+	// worth of bytes plus some slack). Matches the Duplex preallocation.
+	cleanedOut := make([]byte, callbackSamples*4)
+
 	for range nCallbacks {
 		inputSamples := s16ToBytes(make([]int16, callbackSamples))
 		outputSamples := s16ToBytes(make([]int16, callbackSamples))
 		totalInputBytes += len(inputSamples)
 
-		// Replicate Duplex callback logic (audio.go:297-315)
-		samplesToWrite := inputSamples
-
-		cleaned := p.Process(inputSamples, outputSamples)
-		if cleaned != nil {
-			samplesToWrite = cleaned
-		} else {
-			samplesToWrite = nil
-		}
-
-		if len(samplesToWrite) > 0 {
-			writer.Write(samplesToWrite)
+		// Replicate Duplex callback logic: if processor returns 0 bytes,
+		// write nothing (the processor is still buffering).
+		n := p.Process(inputSamples, outputSamples, cleanedOut)
+		if n > 0 {
+			writer.Write(cleanedOut[:n])
 		}
 	}
 

@@ -28,89 +28,11 @@ import (
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
-type chunkWriter struct {
-	ctx      context.Context
-	ready    chan<- (*bytes.Buffer)
-	current  *bytes.Buffer
-	lastSend time.Time
-}
-
-func newChunkWriter(ctx context.Context, ready chan<- (*bytes.Buffer)) *chunkWriter {
-	return &chunkWriter{
-		ctx:      ctx,
-		ready:    ready,
-		current:  new(bytes.Buffer),
-		lastSend: time.Now(),
-	}
-}
-
-func (rbw *chunkWriter) Flush() {
-	if rbw.current.Len() > 0 {
-		select {
-		case rbw.ready <- rbw.current:
-		case <-rbw.ctx.Done():
-		}
-		rbw.current = new(bytes.Buffer)
-	}
-}
-
-func (rbw *chunkWriter) Write(p []byte) (n int, err error) {
-	now := time.Now()
-	if now.Sub(rbw.lastSend) >= 250*time.Millisecond {
-		select {
-		case rbw.ready <- rbw.current:
-			break
-		case <-rbw.ctx.Done():
-			return 0, rbw.ctx.Err()
-		}
-		rbw.current = new(bytes.Buffer)
-		rbw.lastSend = now
-	}
-
-	return rbw.current.Write(p)
-}
-
-type chunkReader struct {
-	ctx     context.Context
-	chunks  <-chan *bytes.Buffer
-	current *bytes.Buffer
-}
-
-func newChunkReader(ctx context.Context, chunks <-chan *bytes.Buffer) *chunkReader {
-	return &chunkReader{
-		ctx:    ctx,
-		chunks: chunks,
-	}
-}
-
-func (cr *chunkReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	n := 0
-	for len(p) > 0 {
-		if cr.current == nil || cr.current.Len() == 0 {
-			select {
-			case buf := <-cr.chunks:
-				cr.current = buf
-			default:
-				return n, nil
-			}
-		}
-		if cr.current == nil {
-			return n, nil
-		}
-
-		nn, _ := cr.current.Read(p)
-		n += nn
-		p = p[nn:]
-		if cr.current.Len() == 0 {
-			cr.current = nil
-		}
-	}
-	return n, nil
-}
+// playbackJitterMs is the pre-roll the playback path requires before unblocking.
+// TTS deltas arrive in bursts and the audio callback fires on a hard 20 ms
+// cadence, so without a small playout buffer the speaker zero-fills (audible
+// chop) any time a callback beats the next chunk. Refills on underrun.
+const playbackJitterMs = 80
 
 type ipcLogWriter struct {
 	server *ipc.Server
@@ -217,26 +139,31 @@ type ListenConfig struct {
 	LocalVQELibPath   string
 	AECRefSource      AECRefSource
 	AECMonitorDevice  string
+	AECNoiseGate      bool
+	AECNoiseGateDBFS  float32
 	RefRing           *audio.Int16Ring
 	DumpAudioDir      string
 	IPCServer         *ipc.Server
 }
 
 type Listener struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	conn            *openairt.Conn
-	errCh           chan error
-	audioChunks     chan *bytes.Buffer
-	chunkWriter     *chunkWriter
-	config          ListenConfig
-	streamConfig    audio.StreamConfig
-	rtCli           *openairt.Client
-	statePath       string
-	audioPlayChunks chan *bytes.Buffer
-	playReader      *chunkReader
-	processor       audio.AudioProcessor
-	duplexOpts      *audio.DuplexOpts
+	ctx               context.Context
+	cancel            context.CancelFunc
+	conn              *openairt.Conn
+	errCh             chan error
+	audioChunks       chan *bytes.Buffer
+	chunkWriter       *audio.ChunkWriter
+	config            ListenConfig
+	streamConfig      audio.StreamConfig
+	rtCli             *openairt.Client
+	statePath         string
+	audioPlayChunks   chan *bytes.Buffer
+	playReader        *audio.ChunkReader
+	processor         audio.AudioProcessor
+	duplexOpts        *audio.DuplexOpts
+	aecMicRing        *audio.Int16Ring
+	aecRefRing        *audio.Int16Ring
+	aecDumpProcessed  io.Writer
 }
 
 func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string, processor audio.AudioProcessor) *Listener {
@@ -252,9 +179,14 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 		audioChunks:  make(chan *bytes.Buffer, 1024),
 		processor:    processor,
 	}
-	l.chunkWriter = newChunkWriter(l.ctx, l.audioChunks)
+	l.chunkWriter = audio.NewChunkWriter(l.ctx, l.audioChunks)
 	l.audioPlayChunks = make(chan *bytes.Buffer, 1024)
-	l.playReader = newChunkReader(l.ctx, l.audioPlayChunks)
+	playbackRate := streamConfig.OutputSampleRate
+	if playbackRate == 0 {
+		playbackRate = streamConfig.SampleRate
+	}
+	prerollBytes := playbackRate * playbackJitterMs / 1000 * 2
+	l.playReader = audio.NewChunkReader(l.ctx, l.audioPlayChunks, prerollBytes)
 
 	monitorMode := config.RefRing != nil && config.AECRefSource == AECRefMonitor
 
@@ -283,9 +215,16 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 			}
 			if micFile != nil && spkFile != nil && aecFile != nil {
 				l.duplexOpts = &audio.DuplexOpts{
-					DumpInput:     micFile,
-					DumpOutput:    spkFile,
-					DumpProcessed: aecFile,
+					DumpInput:  micFile,
+					DumpOutput: spkFile,
+				}
+				// aecFile is written from the AEC worker when it runs
+				// off-callback (processor != nil); the legacy inline path
+				// falls back to DumpProcessed on duplexOpts.
+				if processor != nil {
+					l.aecDumpProcessed = aecFile
+				} else {
+					l.duplexOpts.DumpProcessed = aecFile
 				}
 				if ttsFile != nil {
 					l.duplexOpts.DumpTTS = ttsFile
@@ -316,6 +255,18 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 			l.duplexOpts = &audio.DuplexOpts{}
 		}
 		l.duplexOpts.RefSource = config.RefRing
+	}
+
+	// When a processor is configured, route AEC work through a dedicated
+	// worker goroutine so inference never blocks the realtime audio callback.
+	if processor != nil {
+		l.aecMicRing = audio.NewInt16Ring(streamConfig.SampleRate) // ~1s buffer
+		l.aecRefRing = audio.NewInt16Ring(streamConfig.SampleRate)
+		if l.duplexOpts == nil {
+			l.duplexOpts = &audio.DuplexOpts{}
+		}
+		l.duplexOpts.AECMicRing = l.aecMicRing
+		l.duplexOpts.AECRefRing = l.aecRefRing
 	}
 
 	return l
@@ -478,6 +429,11 @@ func listen(config ListenConfig) {
 		log.Printf("Using capture device: %s", captureDeviceName)
 	}
 
+	// Upper bound on bytes per Process call: 2× period at deviceRate × 2 bytes/sample.
+	// Matches the Duplex callback's own preallocation so the processor never
+	// needs to grow its scratch at runtime.
+	maxProcessBytes := 2 * periodMs * sampleRate / 1000 * 2
+
 	var processor audio.AudioProcessor
 	if config.EnableAEC && config.Mode == "assistant" {
 		modelPath, err := localvqe.EnsureModel(config.LocalVQEModelPath)
@@ -492,9 +448,15 @@ func listen(config ListenConfig) {
 		if err != nil {
 			log.Fatalf("listen: failed to create localvqe engine: %v", err)
 		}
-		processor = audio.NewLocalVQEProcessor(engine, sampleRate)
-		log.Printf("listen: LocalVQE AEC enabled (modelRate=%d, deviceRate=%d, hopLength=%d, refSource=%s)",
-			engine.SampleRate(), sampleRate, engine.HopLength(), config.AECRefSource)
+		if config.AECNoiseGate {
+			if err := engine.SetNoiseGate(true, config.AECNoiseGateDBFS); err != nil {
+				log.Fatalf("listen: failed to enable noise gate: %v", err)
+			}
+			log.Printf("listen: LocalVQE noise gate enabled (threshold=%.1f dBFS)", config.AECNoiseGateDBFS)
+		}
+		processor = audio.NewLocalVQEProcessor(engine, sampleRate, maxProcessBytes)
+		log.Printf("listen: LocalVQE AEC enabled (modelRate=%d, deviceRate=%d, hopLength=%d, refSource=%s, maxProcessBytes=%d)",
+			engine.SampleRate(), sampleRate, engine.HopLength(), config.AECRefSource, maxProcessBytes)
 	}
 
 	if processor != nil && config.AECRefSource == AECRefMonitor {

@@ -99,6 +99,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_LOCALVQE_LIB`: Path to `liblocalvqe.so` / `liblocalvqe.dylib` (default: next to the binary or the system library path).
 - `VOXINPUT_AEC_REF_SOURCE`: AEC reference signal source — `playback` (far-end TTS buffer we send to the speaker, default) or `monitor` (samples captured from a loopback device so AEC can also cancel system audio from other apps). Also settable via `--aec-ref-source`.
 - `VOXINPUT_AEC_MONITOR_DEVICE`: Name of the capture device that feeds the AEC reference when `AEC_REF_SOURCE=monitor`. On PipeWire/PulseAudio this is usually `"Monitor of <sink>"`; on macOS this requires a virtual loopback such as [BlackHole](https://github.com/ExistentialAudio/BlackHole) or Loopback routing system output to a capture device. Use the `devices` subcommand to list capture devices. Also settable via `--aec-monitor-device`.
+- `VOXINPUT_AEC_NOISE_GATE`: Enable the LocalVQE residual-echo noise gate (`yes`/`no`, default: `no`). When on, any output hop whose RMS sits at or below `VOXINPUT_AEC_NOISE_GATE_DBFS` is replaced with silence. Useful when the model leaves a faint residual on far-end-only / silent-near-end stretches that becomes audible after downstream peak-normalisation. Also settable via `--aec-noise-gate` / `--no-aec-noise-gate`.
+- `VOXINPUT_AEC_NOISE_GATE_DBFS`: Noise gate threshold in dBFS (default: `-45.0`). More negative gates fewer frames (preserves quiet near-end speech, leaves more residual); less negative gates more aggressively. Also settable via `--aec-noise-gate-dbfs`.
 - `VOXINPUT_DUMP_AUDIO_DIR`: Directory to dump raw mic/speaker PCM for AEC analysis (default: none). In monitor mode, an extra `tts.raw` is dumped alongside `spk.raw` so the far-end TTS can be compared against what the monitor actually captured.
 - `VOXINPUT_SOCKET`: Socket path for IPC server (default: `$XDG_RUNTIME_DIR/VoxInput.sock` when using `tui` subcommand)
 - `XDG_RUNTIME_DIR` or `VOXINPUT_RUNTIME_DIR`: Used for the PID and state files, defaults to `/run/voxinput` if niether are present
@@ -119,6 +121,8 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--screenshot-command <cmd>`: (assistant mode only) Command to capture a screenshot (e.g. `grim /tmp/screenshot.png`)
   - `--screenshot-file <path>`: (assistant mode only) Path where the screenshot command saves its output
   - `--dump-audio <dir>`: (assistant mode only) Dump raw mic and speaker PCM to files for AEC analysis
+  - `--aec-noise-gate` / `--no-aec-noise-gate`: (assistant mode only) Toggle the LocalVQE residual-echo noise gate
+  - `--aec-noise-gate-dbfs <float>`: (assistant mode only) Noise gate threshold in dBFS (default: -45.0)
   - `--socket <path>`: Enable IPC socket server for TUI connections
 
   ```bash

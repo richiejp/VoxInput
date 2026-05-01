@@ -18,6 +18,7 @@ type LocalVQE struct {
 	fnLastError      func(uintptr) uintptr
 	fnSampleRate     func(uintptr) int32
 	fnHopLength      func(uintptr) int32
+	fnSetNoiseGate   func(uintptr, int32, float32) int32
 }
 
 // New loads the shared library and model.
@@ -38,6 +39,7 @@ func New(libPath, modelPath string) (*LocalVQE, error) {
 	purego.RegisterLibFunc(&d.fnLastError, lib, "localvqe_last_error")
 	purego.RegisterLibFunc(&d.fnSampleRate, lib, "localvqe_sample_rate")
 	purego.RegisterLibFunc(&d.fnHopLength, lib, "localvqe_hop_length")
+	purego.RegisterLibFunc(&d.fnSetNoiseGate, lib, "localvqe_set_noise_gate")
 
 	pathBytes := append([]byte(modelPath), 0) // null-terminated
 	d.ctx = fnNew(uintptr(unsafe.Pointer(&pathBytes[0])))
@@ -69,24 +71,54 @@ func (d *LocalVQE) ProcessS16(mic, ref []int16) ([]int16, error) {
 // ProcessFrameS16 processes a single hop of int16 PCM (16kHz mono).
 // mic and ref must each have exactly HopLength() samples.
 func (d *LocalVQE) ProcessFrameS16(mic, ref []int16) ([]int16, error) {
-	n := int32(len(mic))
-	out := make([]int16, n)
+	out := make([]int16, len(mic))
+	if err := d.ProcessFrameS16Into(mic, ref, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ProcessFrameS16Into is the zero-alloc form of ProcessFrameS16: the caller
+// supplies the output buffer, which must have the same length as mic/ref.
+func (d *LocalVQE) ProcessFrameS16Into(mic, ref, out []int16) error {
+	if len(mic) != len(ref) || len(mic) != len(out) {
+		return fmt.Errorf("localvqe: mic/ref/out length mismatch: %d/%d/%d",
+			len(mic), len(ref), len(out))
+	}
+	if len(mic) == 0 {
+		return nil
+	}
 	ret := d.fnProcessFrameS16(
 		d.ctx,
 		uintptr(unsafe.Pointer(&mic[0])),
 		uintptr(unsafe.Pointer(&ref[0])),
-		n,
+		int32(len(mic)),
 		uintptr(unsafe.Pointer(&out[0])),
 	)
 	if ret != 0 {
-		return nil, fmt.Errorf("localvqe_process_frame_s16 error %d: %s", ret, d.LastError())
+		return fmt.Errorf("localvqe_process_frame_s16 error %d: %s", ret, d.LastError())
 	}
-	return out, nil
+	return nil
 }
 
 // Reset clears streaming state (overlap buffers, GRU hidden state).
 func (d *LocalVQE) Reset() {
 	d.fnReset(d.ctx)
+}
+
+// SetNoiseGate enables or disables the residual-echo noise gate. When enabled,
+// any 256-sample output hop whose RMS is at or below thresholdDBFS (in dBFS)
+// is replaced with zeros. -45 dBFS is a reasonable starting threshold.
+func (d *LocalVQE) SetNoiseGate(enabled bool, thresholdDBFS float32) error {
+	var en int32
+	if enabled {
+		en = 1
+	}
+	ret := d.fnSetNoiseGate(d.ctx, en, thresholdDBFS)
+	if ret != 0 {
+		return fmt.Errorf("localvqe_set_noise_gate error %d: %s", ret, d.LastError())
+	}
+	return nil
 }
 
 // HopLength returns the model hop length in samples.
