@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -443,6 +444,17 @@ func listen(config ListenConfig) {
 		libPath, err := localvqe.EnsureLib(config.LocalVQELibPath)
 		if err != nil {
 			log.Fatalf("listen: failed to find localvqe lib: %v", err)
+		}
+		// Cap LocalVQE inference threads on many-core hosts. GGML's CPU
+		// backend honours the count we pass without further capping, so
+		// its own default of nproc-1 over-subscribes large machines and
+		// starves the audio callback. 4 threads saturates the 1.3M model
+		// in real time. Only override when GGML_NTHREADS is unset and the
+		// host has the headroom; on small / cgroup-restricted hosts let
+		// the library pick its nproc-1 default so we don't pin more
+		// threads than cores the process can actually use.
+		if os.Getenv("GGML_NTHREADS") == "" && runtime.NumCPU()-1 >= 4 {
+			os.Setenv("GGML_NTHREADS", "4")
 		}
 		engine, err := localvqe.New(libPath, modelPath)
 		if err != nil {
