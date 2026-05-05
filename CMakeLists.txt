@@ -23,12 +23,12 @@ set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig TRUE CACHE BOOL "" FORCE)
 add_subdirectory(LocalVQE/ggml)
 
 # Download the LocalVQE GGUF model
-set(LOCALVQE_MODEL_URL "https://huggingface.co/LocalAI-io/LocalVQE/resolve/main/localvqe-v1-f32.gguf")
+set(LOCALVQE_MODEL_URL "https://huggingface.co/LocalAI-io/LocalVQE/resolve/main/localvqe-v1.1-1.3M-f32.gguf")
 set(LOCALVQE_MODEL_PATH "${CMAKE_CURRENT_BINARY_DIR}/share/voxinput/localvqe.gguf")
 file(DOWNLOAD
     ${LOCALVQE_MODEL_URL}
     ${LOCALVQE_MODEL_PATH}
-    EXPECTED_HASH SHA256=493b0c3af8bbe9462a8cce38bc5065bcfbf763211ae98e52ed82ebe12ceec391
+    EXPECTED_HASH SHA256=c118227c6b433d6aa36d9e4b993e0f31aa60787ea38d301d04db917a4a2b0a84
     SHOW_PROGRESS
 )
 
