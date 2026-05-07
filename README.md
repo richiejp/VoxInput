@@ -17,6 +17,8 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Transcription**: Converts recorded audio into text using a local or remote transcription service.
 - **Text Automation**: Simulates typing the transcribed text into an application using [`dotool`](https://git.sr.ht/~geb/dotool) on Linux or CoreGraphics on macOS.
 - **Voice Activity Detection**: In realtime mode VoxInput uses VAD to detect speech segments and automatically transcribe them.
+- **Noise Suppression**: Reduces background noise from the microphone input to improve transcription accuracy.
+- **Acoustic Echo Cancellation**: In assistant mode, cancels the assistant's own voice output from the microphone input to prevent feedback loops.
 - **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
 - **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses.
 - **Desktop Control**: In assistant mode, the LLM can execute keyboard and mouse commands through function calls to control your desktop environment.
