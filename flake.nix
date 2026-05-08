@@ -32,7 +32,7 @@
               dotool
               cmake
 
-              libGL pkg-config xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
+              libGL pkg-config libx11.dev libxcursor libxi libxinerama libxrandr libxxf86vm libxkbcommon wayland
             ];
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libpulseaudio ];
           };
@@ -79,7 +79,7 @@
               dotool
               localvqe-lib
 
-              libGL xorg.libX11.dev xorg.libXcursor xorg.libXi xorg.libXinerama xorg.libXrandr xorg.libXxf86vm libxkbcommon wayland
+              libGL libx11.dev libxcursor libxi libxinerama libxrandr libxxf86vm libxkbcommon wayland
             ];
 
             postInstall = ''
