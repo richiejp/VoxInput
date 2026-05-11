@@ -35,9 +35,20 @@ append() {
     report+="$1"$'\n'
 }
 
-# Extract the integer N from "localvqe-vN-f32.gguf".
+# Match filenames like "localvqe-v1-1.3M-f32.gguf" or
+# "localvqe-v1.1-1.3M-f32.gguf". The parameter-count segment ("1.3M") is
+# optional so older naming without it still matches.
+MODEL_FILE_RE='^localvqe-v[0-9]+(\.[0-9]+)?(-[0-9]+(\.[0-9]+)?[KMGB])?-f32\.gguf$'
+
+# Extract the version string (e.g. "v1" or "v1.1") from a model filename.
 model_version() {
-    [[ $1 =~ ^localvqe-v([0-9]+)-f32\.gguf$ ]] && echo "${BASH_REMATCH[1]}"
+    [[ $1 =~ ^localvqe-(v[0-9]+(\.[0-9]+)?) ]] && echo "${BASH_REMATCH[1]}"
+}
+
+# Return 0 if $1 is a strictly newer version than $2 using natural sort.
+version_gt() {
+    [[ "$1" != "$2" ]] \
+        && [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" == "$1" ]]
 }
 
 submodule_url=$(git config --file .gitmodules "submodule.${SUBMODULE_PATH}.url")
@@ -80,12 +91,12 @@ while IFS= read -r line; do
     [[ -n "$line" ]] && model_entries+=("$line")
 done < <(
     printf '%s' "$api_json" \
-        | jq -r '
+        | jq -r --arg re "$MODEL_FILE_RE" '
             .[]
-            | select(.path | test("^localvqe-v[0-9]+-f32\\.gguf$"))
+            | select(.path | test($re))
             | "\(.path)\t\(.lfs.oid // "NO_LFS")\t\(.size)"
           ' \
-        | sort
+        | sort -V
 )
 
 if [[ ${#model_entries[@]} -eq 0 ]]; then
@@ -122,7 +133,8 @@ for entry in "${model_entries[@]}"; do
         fi
     else
         version=$(model_version "$path")
-        if [[ -n "$version" && -n "$pinned_version" && "$version" -gt "$pinned_version" ]]; then
+        if [[ -n "$version" && -n "$pinned_version" ]] \
+            && version_gt "$version" "$pinned_version"; then
             marker=" (**newer version available**)"
             updates_found=1
         fi
