@@ -3,11 +3,11 @@
     "localvqe-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1778766163,
-        "narHash": "sha256-CWakTb3522+GUxox0FpKce0QElUvXutBq/opiGGs3r4=",
+        "lastModified": 1778833395,
+        "narHash": "sha256-tsVDSGQmqN/hmlV3SSmWBttDmm28qI13bhcS5NtEJvA=",
         "ref": "refs/heads/main",
-        "rev": "cd7afa818dc7f85bde156e72ad9d8f070792ee74",
-        "revCount": 35,
+        "rev": "b6d57f4acd4137ee0e1961d0adce6e8dddc47bd0",
+        "revCount": 36,
         "submodules": true,
         "type": "git",
         "url": "https://github.com/localai-org/LocalVQE"
