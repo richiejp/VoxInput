@@ -37,8 +37,8 @@ github.com/esiqveland/notify v0.13.3 h1:QCMw6o1n+6rl+oLUfg8P1IIDSFsDEb2WlXvVvIJb
 github.com/esiqveland/notify v0.13.3/go.mod h1:hesw/IRYTO0x99u1JPweAl4+5mwXJibQVUcP0Iu5ORE=
 github.com/gen2brain/beeep v0.11.2 h1:+KfiKQBbQCuhfJFPANZuJ+oxsSKAYNe88hIpJuyKWDA=
 github.com/gen2brain/beeep v0.11.2/go.mod h1:jQVvuwnLuwOcdctHn/uyh8horSBNJ8uGb9Cn2W4tvoc=
-github.com/gen2brain/malgo v0.11.24 h1:hHcIJVfzWcEDHFdPl5Dl/CUSOjzOleY0zzAV8Kx+imE=
-github.com/gen2brain/malgo v0.11.24/go.mod h1:f9TtuN7DVrXMiV/yIceMeWpvanyVzJQMlBecJFVMxww=
+github.com/gen2brain/malgo v0.11.25 h1:g0eMVeZIBvMRBbkVSR8p7ZafGFbxBcQERPa1GKHkg34=
+github.com/gen2brain/malgo v0.11.25/go.mod h1:xLVG3ROA33Bzol1quF3e4ehqcFuqh8QK4B8T6LQUs/M=
 github.com/go-ole/go-ole v1.3.0 h1:Dt6ye7+vXGIKZ7Xtk4s6/xVdGDQynvom7xCFEdWr6uE=
 github.com/go-ole/go-ole v1.3.0/go.mod h1:5LS6F96DhAwUc7C+1HLexzMXY1xGRSryjyPPKW6zv78=
 github.com/godbus/dbus/v5 v5.1.0 h1:4KLkAxT3aOY8Li4FRJe/KvhoNFFxo0m6fNuFUO8QJUk=
