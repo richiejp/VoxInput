@@ -16,6 +16,7 @@ import (
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/ipc"
+	"github.com/richiejp/VoxInput/internal/localvqe"
 	"github.com/richiejp/VoxInput/internal/pid"
 	"github.com/richiejp/VoxInput/internal/semver"
 )
@@ -88,7 +89,8 @@ Environment variables:
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
   VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
   VOXINPUT_ENABLE_AEC - Enable acoustic echo cancellation in assistant mode (yes/no, default: yes)
-  VOXINPUT_LOCALVQE_MODEL - Path to LocalVQE GGUF model file (default: share/voxinput/localvqe.gguf next to the binary)
+  VOXINPUT_LOCALVQE_MODEL - Path to a LocalVQE GGUF model file, overriding the bundled models (default: the bundled model selected by VOXINPUT_LOCALVQE_MODEL_VERSION)
+  VOXINPUT_LOCALVQE_MODEL_VERSION - Which bundled LocalVQE model to use: v1.2 (default) or v1.3; also accepts the full version-size form (v1.2-1.3M, v1.3-4.8M). Both are bundled by the CMake build; with a plain 'go build' the chosen model is downloaded into the user cache on first use. Ignored when VOXINPUT_LOCALVQE_MODEL is set.
   VOXINPUT_LOCALVQE_LIB - Path to liblocalvqe.so (default: next to the binary or system library path)
   VOXINPUT_AEC_REF_SOURCE - AEC reference signal: 'playback' (far-end TTS buffer, default) or 'monitor' (samples from a loopback capture device)
   VOXINPUT_AEC_MONITOR_DEVICE - Capture device name feeding the AEC reference when AEC_REF_SOURCE=monitor (e.g. "Monitor of <sink>" on PipeWire, a BlackHole/Loopback device on macOS; use 'devices' to list)
@@ -147,6 +149,7 @@ Environment variables:
 		outputSampleRateStr := getPrefixedEnv([]string{"VOXINPUT"}, "OUTPUT_SAMPLE_RATE", "24000")
 		dumpAudioDir := getPrefixedEnv([]string{"VOXINPUT"}, "DUMP_AUDIO_DIR", "")
 		localvqeModelPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_MODEL", "")
+		localvqeModelVersion := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_MODEL_VERSION", "")
 		localvqeLibPath := getPrefixedEnv([]string{"VOXINPUT"}, "LOCALVQE_LIB", "")
 		aecRefSourceStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_REF_SOURCE", "playback")
 		aecMonitorDevice := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_MONITOR_DEVICE", "")
@@ -359,36 +362,37 @@ Environment variables:
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:           pidPath,
-					APIKey:            apiKey,
-					HTTPAPIBase:       httpApiBase,
-					WSAPIBase:         wsApiBase,
-					Lang:              lang,
-					Model:             model,
-					Timeout:           timeout,
-					UI:                sink,
-					CaptureDevice:     captureDeviceName,
-					OutputFile:        outputFile,
-					Prompt:            prompt,
-					Mode:              mode,
-					AssistantModel:    assistantModel,
-					AssistantVoice:    assistantVoice,
-					Instructions:      instructions,
-					EnableDotool:      enableDotool,
-					InputController:   inputCtrl,
-					ScreenshotCommand: screenshotCommand,
-					ScreenshotFile:    screenshotFile,
-					InputSampleRate:   inputSampleRate,
-					OutputSampleRate:  outputSampleRate,
-					EnableAEC:         enableAEC,
-					LocalVQEModelPath: localvqeModelPath,
-					LocalVQELibPath:   localvqeLibPath,
-					AECRefSource:      aecRefSource,
-					AECMonitorDevice:  aecMonitorDevice,
-					AECNoiseGate:      aecNoiseGate,
-					AECNoiseGateDBFS:  aecNoiseGateDBFS,
-					DumpAudioDir:      dumpAudioDir,
-					IPCServer:         ipcServer,
+					PIDPath:              pidPath,
+					APIKey:               apiKey,
+					HTTPAPIBase:          httpApiBase,
+					WSAPIBase:            wsApiBase,
+					Lang:                 lang,
+					Model:                model,
+					Timeout:              timeout,
+					UI:                   sink,
+					CaptureDevice:        captureDeviceName,
+					OutputFile:           outputFile,
+					Prompt:               prompt,
+					Mode:                 mode,
+					AssistantModel:       assistantModel,
+					AssistantVoice:       assistantVoice,
+					Instructions:         instructions,
+					EnableDotool:         enableDotool,
+					InputController:      inputCtrl,
+					ScreenshotCommand:    screenshotCommand,
+					ScreenshotFile:       screenshotFile,
+					InputSampleRate:      inputSampleRate,
+					OutputSampleRate:     outputSampleRate,
+					EnableAEC:            enableAEC,
+					LocalVQEModelPath:    localvqeModelPath,
+					LocalVQEModelVersion: localvqe.ModelVariant(localvqeModelVersion),
+					LocalVQELibPath:      localvqeLibPath,
+					AECRefSource:         aecRefSource,
+					AECMonitorDevice:     aecMonitorDevice,
+					AECNoiseGate:         aecNoiseGate,
+					AECNoiseGateDBFS:     aecNoiseGateDBFS,
+					DumpAudioDir:         dumpAudioDir,
+					IPCServer:            ipcServer,
 				})
 				cancel()
 			}()

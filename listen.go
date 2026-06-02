@@ -22,10 +22,10 @@ import (
 	"github.com/gen2brain/malgo"
 
 	"github.com/richiejp/VoxInput/internal/audio"
-	"github.com/richiejp/VoxInput/internal/localvqe"
 	"github.com/richiejp/VoxInput/internal/gui"
 	"github.com/richiejp/VoxInput/internal/input"
 	"github.com/richiejp/VoxInput/internal/ipc"
+	"github.com/richiejp/VoxInput/internal/localvqe"
 	"github.com/richiejp/VoxInput/internal/pid"
 )
 
@@ -114,57 +114,58 @@ const (
 )
 
 type ListenConfig struct {
-	PIDPath           string
-	APIKey            string
-	HTTPAPIBase       string
-	WSAPIBase         string
-	Lang              string
-	Model             string
-	Timeout           time.Duration
-	UI                gui.StatusSink
-	CaptureDevice     string
-	OutputFile        string
-	Prompt            string
-	Mode              string
-	AssistantModel    string
-	AssistantVoice    string
-	Instructions      string
-	EnableDotool      bool
-	InputController   input.Controller
-	ScreenshotCommand string
-	ScreenshotFile    string
-	InputSampleRate   int
-	OutputSampleRate  int
-	EnableAEC         bool
-	LocalVQEModelPath string
-	LocalVQELibPath   string
-	AECRefSource      AECRefSource
-	AECMonitorDevice  string
-	AECNoiseGate      bool
-	AECNoiseGateDBFS  float32
-	RefRing           *audio.Int16Ring
-	DumpAudioDir      string
-	IPCServer         *ipc.Server
+	PIDPath              string
+	APIKey               string
+	HTTPAPIBase          string
+	WSAPIBase            string
+	Lang                 string
+	Model                string
+	Timeout              time.Duration
+	UI                   gui.StatusSink
+	CaptureDevice        string
+	OutputFile           string
+	Prompt               string
+	Mode                 string
+	AssistantModel       string
+	AssistantVoice       string
+	Instructions         string
+	EnableDotool         bool
+	InputController      input.Controller
+	ScreenshotCommand    string
+	ScreenshotFile       string
+	InputSampleRate      int
+	OutputSampleRate     int
+	EnableAEC            bool
+	LocalVQEModelPath    string
+	LocalVQEModelVersion localvqe.ModelVariant
+	LocalVQELibPath      string
+	AECRefSource         AECRefSource
+	AECMonitorDevice     string
+	AECNoiseGate         bool
+	AECNoiseGateDBFS     float32
+	RefRing              *audio.Int16Ring
+	DumpAudioDir         string
+	IPCServer            *ipc.Server
 }
 
 type Listener struct {
-	ctx               context.Context
-	cancel            context.CancelFunc
-	conn              *openairt.Conn
-	errCh             chan error
-	audioChunks       chan *bytes.Buffer
-	chunkWriter       *audio.ChunkWriter
-	config            ListenConfig
-	streamConfig      audio.StreamConfig
-	rtCli             *openairt.Client
-	statePath         string
-	audioPlayChunks   chan *bytes.Buffer
-	playReader        *audio.ChunkReader
-	processor         audio.AudioProcessor
-	duplexOpts        *audio.DuplexOpts
-	aecMicRing        *audio.Int16Ring
-	aecRefRing        *audio.Int16Ring
-	aecDumpProcessed  io.Writer
+	ctx              context.Context
+	cancel           context.CancelFunc
+	conn             *openairt.Conn
+	errCh            chan error
+	audioChunks      chan *bytes.Buffer
+	chunkWriter      *audio.ChunkWriter
+	config           ListenConfig
+	streamConfig     audio.StreamConfig
+	rtCli            *openairt.Client
+	statePath        string
+	audioPlayChunks  chan *bytes.Buffer
+	playReader       *audio.ChunkReader
+	processor        audio.AudioProcessor
+	duplexOpts       *audio.DuplexOpts
+	aecMicRing       *audio.Int16Ring
+	aecRefRing       *audio.Int16Ring
+	aecDumpProcessed io.Writer
 }
 
 func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string, processor audio.AudioProcessor) *Listener {
@@ -437,7 +438,7 @@ func listen(config ListenConfig) {
 
 	var processor audio.AudioProcessor
 	if config.EnableAEC && config.Mode == "assistant" {
-		modelPath, err := localvqe.EnsureModel(config.LocalVQEModelPath)
+		modelPath, err := localvqe.EnsureModel(config.LocalVQEModelPath, config.LocalVQEModelVersion)
 		if err != nil {
 			log.Fatalf("listen: failed to ensure localvqe model: %v", err)
 		}

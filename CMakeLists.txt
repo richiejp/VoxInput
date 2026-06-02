@@ -22,15 +22,23 @@ set(LOCALVQE_BUILD_SHARED ON CACHE BOOL "" FORCE)
 set(CMAKE_DISABLE_FIND_PACKAGE_PkgConfig TRUE CACHE BOOL "" FORCE)
 add_subdirectory(LocalVQE/ggml)
 
-# Download the LocalVQE GGUF model
-set(LOCALVQE_MODEL_URL "https://huggingface.co/LocalAI-io/LocalVQE/resolve/main/localvqe-v1.2-1.3M-f32.gguf")
-set(LOCALVQE_MODEL_PATH "${CMAKE_CURRENT_BINARY_DIR}/share/voxinput/localvqe.gguf")
-file(DOWNLOAD
-    ${LOCALVQE_MODEL_URL}
-    ${LOCALVQE_MODEL_PATH}
-    EXPECTED_HASH SHA256=4856ecf5f522b23fb2bc5caeac81f323c0ef1c4c156a9c7d40a6adbe092ba9ce
-    SHOW_PROGRESS
-)
+# Download the LocalVQE GGUF models. Both are bundled; v1.2 is the runtime
+# default and v1.3 is selectable via VOXINPUT_LOCALVQE_MODEL_VERSION. Variant
+# names and checksums must stay in sync with internal/localvqe/model.go.
+set(LOCALVQE_MODEL_BASE_URL "https://huggingface.co/LocalAI-io/LocalVQE/resolve/main")
+set(LOCALVQE_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/share/voxinput")
+
+function(download_localvqe_model variant sha256)
+    file(DOWNLOAD
+        "${LOCALVQE_MODEL_BASE_URL}/localvqe-${variant}-f32.gguf"
+        "${LOCALVQE_MODEL_DIR}/localvqe-${variant}-f32.gguf"
+        EXPECTED_HASH SHA256=${sha256}
+        SHOW_PROGRESS
+    )
+endfunction()
+
+download_localvqe_model("v1.2-1.3M" "4856ecf5f522b23fb2bc5caeac81f323c0ef1c4c156a9c7d40a6adbe092ba9ce")
+download_localvqe_model("v1.3-4.8M" "c4f7912485c32cfc206c536f2f050b52513f2f613fdbc616391f6b26ab1d51ec")
 
 # Copy liblocalvqe and GGML runtime libraries next to the binary so
 # dlopen finds them at runtime, then build the Go binary.
@@ -56,4 +64,7 @@ add_custom_target(voxinput ALL
 
 install(TARGETS localvqe_shared LIBRARY DESTINATION lib)
 install(PROGRAMS ${VOXINPUT_BUILD_DIR}/voxinput DESTINATION bin)
-install(FILES ${LOCALVQE_MODEL_PATH} DESTINATION share/voxinput)
+install(FILES
+    ${LOCALVQE_MODEL_DIR}/localvqe-v1.2-1.3M-f32.gguf
+    ${LOCALVQE_MODEL_DIR}/localvqe-v1.3-4.8M-f32.gguf
+    DESTINATION share/voxinput)
