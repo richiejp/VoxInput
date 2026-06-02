@@ -1,11 +1,55 @@
 package localvqe
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
+
+// ModelVariant identifies a published LocalVQE GGUF by version and size,
+// e.g. "v1.2-1.3M". The empty value selects DefaultModel.
+type ModelVariant string
+
+const (
+	ModelV13 ModelVariant = "v1.3-4.8M"
+	ModelV12 ModelVariant = "v1.2-1.3M"
+
+	// DefaultModel is used when no version is requested. Both variants are
+	// bundled at build time; v1.2 is the lighter default.
+	DefaultModel ModelVariant = ModelV12
+)
+
+const modelBaseURL = "https://huggingface.co/LocalAI-io/LocalVQE/resolve/main"
+
+// modelFileName is the canonical GGUF file name for a variant, shared by the
+// bundled-file lookup, the cache path, and the download URL.
+func modelFileName(variant ModelVariant) string {
+	return fmt.Sprintf("localvqe-%s-f32.gguf", variant)
+}
+
+// SupportedModelVariants lists the selectable variants, newest first.
+var SupportedModelVariants = []ModelVariant{ModelV13, ModelV12}
+
+// SHA256 of each variant's f32 GGUF, used to verify the build-time download
+// and any runtime cache download.
+var modelHashes = map[ModelVariant]string{
+	ModelV13: "c4f7912485c32cfc206c536f2f050b52513f2f613fdbc616391f6b26ab1d51ec",
+	ModelV12: "4856ecf5f522b23fb2bc5caeac81f323c0ef1c4c156a9c7d40a6adbe092ba9ce",
+}
+
+// modelAliases lets users pass a bare version (e.g. "v1.3") in place of the
+// fully-qualified version-size variant.
+var modelAliases = map[ModelVariant]ModelVariant{
+	"v1.2": ModelV12,
+	"v1.3": ModelV13,
+}
 
 func exeDir() (string, error) {
 	exe, err := os.Executable()
@@ -62,9 +106,14 @@ func EnsureLib(libPath string) (string, error) {
 }
 
 // EnsureModel returns a path to the GGUF model file.
-// If modelPath is non-empty, it's returned as-is (user override).
-// Otherwise looks for the model relative to the executable.
-func EnsureModel(modelPath string) (string, error) {
+//
+// Resolution order:
+//   - modelPath non-empty: returned as-is (explicit user override).
+//   - the requested variant (or DefaultModel when none is requested) bundled
+//     next to the executable at build time.
+//   - failing that, the variant fetched from HuggingFace into the user cache
+//     on first use and reused thereafter (covers a plain `go build`).
+func EnsureModel(modelPath string, variant ModelVariant) (string, error) {
 	if modelPath != "" {
 		if _, err := os.Stat(modelPath); err != nil {
 			return "", fmt.Errorf("model file not found: %w", err)
@@ -72,18 +121,127 @@ func EnsureModel(modelPath string) (string, error) {
 		return modelPath, nil
 	}
 
-	dir, err := exeDir()
+	v, err := resolveVariant(variant)
 	if err != nil {
 		return "", err
 	}
 
+	filename := modelFileName(v)
+
+	dir, err := exeDir()
+	if err != nil {
+		return "", err
+	}
 	candidates := []string{
-		filepath.Join(dir, "share", "voxinput", "localvqe.gguf"),
-		filepath.Join(dir, "..", "share", "voxinput", "localvqe.gguf"),
+		filepath.Join(dir, "share", "voxinput", filename),
+		filepath.Join(dir, "..", "share", "voxinput", filename),
 	}
 	if p := findFirst(candidates); p != "" {
 		return p, nil
 	}
 
-	return "", fmt.Errorf("model not found (searched %v; set VOXINPUT_LOCALVQE_MODEL or rebuild with CMake)", candidates)
+	return ensureCached(v)
+}
+
+// resolveVariant maps an empty value to DefaultModel and a bare-version alias
+// (e.g. "v1.3") to its fully-qualified variant, rejecting unknown values.
+func resolveVariant(variant ModelVariant) (ModelVariant, error) {
+	if variant == "" {
+		return DefaultModel, nil
+	}
+	if _, ok := modelHashes[variant]; ok {
+		return variant, nil
+	}
+	if full, ok := modelAliases[variant]; ok {
+		return full, nil
+	}
+
+	names := make([]string, len(SupportedModelVariants))
+	for i, v := range SupportedModelVariants {
+		names[i] = string(v)
+	}
+	return "", fmt.Errorf("unknown LocalVQE model version %q (supported: %s)", variant, strings.Join(names, ", "))
+}
+
+// ensureCached returns a cached copy of variant, downloading and verifying it
+// on first use. variant must already be resolved (present in modelHashes).
+func ensureCached(variant ModelVariant) (string, error) {
+	wantSum := modelHashes[variant]
+
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine cache directory: %w", err)
+	}
+	dst := filepath.Join(cacheDir, "voxinput", modelFileName(variant))
+
+	// Reuse the cached file when it is intact.
+	if verifyChecksum(dst, wantSum) == nil {
+		return dst, nil
+	}
+
+	url := fmt.Sprintf("%s/%s", modelBaseURL, modelFileName(variant))
+	log.Printf("localvqe: downloading model %s from %s", variant, url)
+	if err := downloadModel(url, dst, wantSum); err != nil {
+		return "", fmt.Errorf("downloading LocalVQE model %s: %w", variant, err)
+	}
+	return dst, nil
+}
+
+// verifyChecksum reports whether path exists and its SHA256 matches wantSum.
+func verifyChecksum(path, wantSum string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != wantSum {
+		return fmt.Errorf("checksum mismatch for %s: got %s want %s", path, got, wantSum)
+	}
+	return nil
+}
+
+// downloadModel streams url to a temp file in dst's directory, verifies its
+// checksum, then atomically renames it into place.
+func downloadModel(url, dst, wantSum string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("creating cache dir: %w", err)
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("http get: unexpected status %s", resp.Status)
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(dst), "localvqe-*.part")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), resp.Body); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing model: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	if got := hex.EncodeToString(h.Sum(nil)); got != wantSum {
+		return fmt.Errorf("checksum mismatch: got %s want %s", got, wantSum)
+	}
+
+	if err := os.Rename(tmp.Name(), dst); err != nil {
+		return fmt.Errorf("installing model: %w", err)
+	}
+	return nil
 }
