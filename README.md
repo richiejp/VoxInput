@@ -20,7 +20,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Noise Suppression**: Reduces background noise from the microphone input to improve transcription accuracy.
 - **Acoustic Echo Cancellation**: In assistant mode, cancels the assistant's own voice output from the microphone input to prevent feedback loops.
 - **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
-- **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses.
+- **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses. Supports barge-in: speak over the assistant to interrupt it mid-response.
 - **Desktop Control**: In assistant mode, the LLM can execute keyboard and mouse commands through function calls to control your desktop environment.
 - **Screenshot Capture**: In assistant mode, the LLM can request a screenshot of your desktop to provide visual context for its responses.
 - **Terminal UI**: Interactive TUI mode (`voxinput tui`) with chat and log tabs, recording controls, and the ability to attach to a running listen process.
@@ -282,8 +282,9 @@ When you start VoxInput in assistant mode:
 1. **Start recording**: Use `./voxinput record` to begin a conversation
 2. **Speak naturally**: The assistant uses server-side Voice Activity Detection (VAD) to detect when you're speaking
 3. **Get responses**: The assistant responds with voice audio streamed back to you
-4. **Desktop actions**: When configured with the `dotool` function, the assistant can execute keyboard and mouse commands
-5. **Continue or stop**: Keep talking for a back-and-forth conversation, or use `./voxinput stop` to end
+4. **Interrupt anytime**: Start talking while the assistant is speaking and it stops immediately (barge-in), discarding the rest of its current response and listening to you instead
+5. **Desktop actions**: When configured with the `dotool` function, the assistant can execute keyboard and mouse commands
+6. **Continue or stop**: Keep talking for a back-and-forth conversation, or use `./voxinput stop` to end
 
 The assistant receives your speech in real-time, transcribes it automatically, generates a response using the configured LLM, and speaks the response back to you - all while optionally executing desktop commands when appropriate.
 
