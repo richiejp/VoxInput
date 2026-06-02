@@ -141,6 +141,12 @@ func (l *Listener) runAudioAssistant() {
 }
 
 func (l *Listener) ReceiveAssistantMessages() {
+	// Track the in-progress response so a barge-in (user speaking over the
+	// assistant) only fires while there is something to interrupt. These are
+	// touched solely from this goroutine, so no synchronisation is needed.
+	var responseActive bool
+	var activeResponseID string
+
 	for {
 		msg, err := l.conn.ReadMessage(l.ctx)
 		if err != nil {
@@ -158,17 +164,36 @@ func (l *Listener) ReceiveAssistantMessages() {
 		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
 			log.Println("Listener.ReceiveAssistantMessages: speech detected")
 			l.config.UI.Send(&gui.ShowSpeechDetectedMsg{})
+			// Barge-in: the user is talking over the assistant. Drop the
+			// queued TTS so playback stops at once and tell the server to
+			// abandon the response it is still streaming.
+			if responseActive {
+				l.bargeIn(activeResponseID)
+				responseActive = false
+				activeResponseID = ""
+			}
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
 			log.Println("Listener.ReceiveAssistantMessages: speech stopped, processing")
 			l.config.UI.Send(&gui.ShowSpeechSubmittedMsg{})
 		case openairt.ServerEventTypeResponseCreated:
 			log.Println("Listener.ReceiveAssistantMessages: generating response")
+			responseActive = true
+			activeResponseID = msg.(openairt.ResponseCreatedEvent).Response.ID
 			l.config.UI.Send(&gui.ShowGeneratingResponseMsg{})
+		case openairt.ServerEventTypeResponseDone:
+			log.Println("Listener.ReceiveAssistantMessages: response done")
+			responseActive = false
+			activeResponseID = ""
 		case openairt.ServerEventTypeConversationItemInputAudioTranscriptionCompleted:
 			transcript := msg.(openairt.ConversationItemInputAudioTranscriptionCompletedEvent).Transcript
 			log.Printf("Listener.ReceiveAssistantMessages: user said: %s", transcript)
 			l.config.UI.Send(&gui.ShowTranscriptMsg{Text: transcript, IsUser: true})
 		case openairt.ServerEventTypeResponseOutputAudioDelta:
+			// Drop deltas once the response has been barged in on; they would
+			// otherwise refill the playback buffer we just flushed.
+			if !responseActive {
+				continue
+			}
 			delta := msg.(openairt.ResponseOutputAudioDeltaEvent)
 			b, err := base64.StdEncoding.DecodeString(delta.Delta)
 			if err != nil {
@@ -228,6 +253,20 @@ func (l *Listener) ReceiveAssistantMessages() {
 			continue
 		}
 
+	}
+}
+
+// bargeIn aborts the assistant mid-response when the user starts speaking. It
+// flushes the locally queued TTS audio so the speaker goes quiet immediately
+// and asks the server to cancel the response so no further audio is generated.
+func (l *Listener) bargeIn(responseID string) {
+	log.Println("Listener.bargeIn: user interrupted, cancelling response")
+	l.playReader.Flush()
+
+	if err := l.conn.SendMessage(l.ctx, openairt.ResponseCancelEvent{
+		ResponseID: responseID,
+	}); err != nil {
+		log.Println("Listener.bargeIn: error cancelling response: ", err)
 	}
 }
 

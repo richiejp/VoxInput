@@ -3,6 +3,7 @@ package audio
 import (
 	"bytes"
 	"context"
+	"sync"
 	"time"
 )
 
@@ -59,6 +60,7 @@ func (w *ChunkWriter) Write(p []byte) (n int, err error) {
 type ChunkReader struct {
 	ctx          context.Context
 	chunks       <-chan *bytes.Buffer
+	mu           sync.Mutex
 	current      *bytes.Buffer
 	pending      []*bytes.Buffer
 	pendingBytes int
@@ -96,10 +98,29 @@ func (r *ChunkReader) drainAvailable() {
 	}
 }
 
+// Flush discards all buffered and queued audio, returning the reader to the
+// pre-roll buffering state. Used for barge-in: when the user starts speaking
+// while the assistant is talking, the already-queued TTS audio must be dropped
+// so playback stops immediately rather than draining to the end of the
+// response. Safe to call concurrently with Read.
+func (r *ChunkReader) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.drainAvailable()
+	r.current = nil
+	r.pending = nil
+	r.pendingBytes = 0
+	r.buffering = true
+}
+
 func (r *ChunkReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	r.drainAvailable()
 
