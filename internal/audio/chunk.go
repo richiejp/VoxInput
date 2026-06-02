@@ -99,19 +99,25 @@ func (r *ChunkReader) drainAvailable() {
 }
 
 // Flush discards all buffered and queued audio, returning the reader to the
-// pre-roll buffering state. Used for barge-in: when the user starts speaking
-// while the assistant is talking, the already-queued TTS audio must be dropped
-// so playback stops immediately rather than draining to the end of the
-// response. Safe to call concurrently with Read.
-func (r *ChunkReader) Flush() {
+// pre-roll buffering state, and reports how many bytes were dropped. Used for
+// barge-in: when the user starts speaking while the assistant is talking, the
+// already-queued TTS audio must be dropped so playback stops immediately
+// rather than draining to the end of the response. The server streams a whole
+// response's audio in a burst, so this buffer can hold seconds of speech long
+// after the response is "done" server-side. Safe to call concurrently with
+// Read.
+func (r *ChunkReader) Flush() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.drainAvailable()
+	// pendingBytes already accounts for the unread tail of r.current.
+	dropped := r.pendingBytes
 	r.current = nil
 	r.pending = nil
 	r.pendingBytes = 0
 	r.buffering = true
+	return dropped
 }
 
 func (r *ChunkReader) Read(p []byte) (int, error) {

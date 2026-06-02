@@ -164,14 +164,13 @@ func (l *Listener) ReceiveAssistantMessages() {
 		case openairt.ServerEventTypeInputAudioBufferSpeechStarted:
 			log.Println("Listener.ReceiveAssistantMessages: speech detected")
 			l.config.UI.Send(&gui.ShowSpeechDetectedMsg{})
-			// Barge-in: the user is talking over the assistant. Drop the
-			// queued TTS so playback stops at once and tell the server to
-			// abandon the response it is still streaming.
-			if responseActive {
-				l.bargeIn(activeResponseID)
-				responseActive = false
-				activeResponseID = ""
-			}
+			// Barge-in: the user is talking over the assistant. The local
+			// playback buffer can hold seconds of TTS that arrived in a burst,
+			// so always flush it here regardless of server response state. Only
+			// send response.cancel when the server is still streaming.
+			l.bargeIn(responseActive, activeResponseID)
+			responseActive = false
+			activeResponseID = ""
 		case openairt.ServerEventTypeInputAudioBufferSpeechStopped:
 			log.Println("Listener.ReceiveAssistantMessages: speech stopped, processing")
 			l.config.UI.Send(&gui.ShowSpeechSubmittedMsg{})
@@ -256,12 +255,21 @@ func (l *Listener) ReceiveAssistantMessages() {
 	}
 }
 
-// bargeIn aborts the assistant mid-response when the user starts speaking. It
-// flushes the locally queued TTS audio so the speaker goes quiet immediately
-// and asks the server to cancel the response so no further audio is generated.
-func (l *Listener) bargeIn(responseID string) {
-	log.Println("Listener.bargeIn: user interrupted, cancelling response")
-	l.playReader.Flush()
+// bargeIn aborts the assistant when the user starts speaking. It always
+// flushes the locally queued TTS so the speaker goes quiet immediately; the
+// buffer routinely outlives the server response because audio arrives in a
+// burst. When the server is still streaming (responseActive), it also sends
+// response.cancel so no further audio is generated.
+func (l *Listener) bargeIn(responseActive bool, responseID string) {
+	dropped := l.playReader.Flush()
+	if dropped == 0 && !responseActive {
+		return
+	}
+	log.Printf("Listener.bargeIn: user interrupted, dropped %d bytes of queued audio", dropped)
+
+	if !responseActive {
+		return
+	}
 
 	if err := l.conn.SendMessage(l.ctx, openairt.ResponseCancelEvent{
 		ResponseID: responseID,
