@@ -15,7 +15,7 @@ jobs:
     name: Check LocalVQE submodule and model
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run upstream-updates check
         id: check
