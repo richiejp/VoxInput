@@ -20,6 +20,7 @@ import (
 
 	openairt "github.com/WqyJh/go-openai-realtime/v2"
 	"github.com/gen2brain/malgo"
+	"github.com/sashabaranov/go-openai"
 
 	"github.com/richiejp/VoxInput/internal/audio"
 	"github.com/richiejp/VoxInput/internal/gui"
@@ -114,38 +115,40 @@ const (
 )
 
 type ListenConfig struct {
-	PIDPath              string
-	APIKey               string
-	HTTPAPIBase          string
-	WSAPIBase            string
-	Lang                 string
-	Model                string
-	Timeout              time.Duration
-	UI                   gui.StatusSink
-	CaptureDevice        string
-	OutputFile           string
-	Prompt               string
-	Mode                 string
-	AssistantModel       string
-	AssistantVoice       string
-	Instructions         string
-	EnableDotool         bool
-	InputController      input.Controller
-	ScreenshotCommand    string
-	ScreenshotFile       string
-	InputSampleRate      int
-	OutputSampleRate     int
-	EnableAEC            bool
-	LocalVQEModelPath    string
-	LocalVQEModelVersion localvqe.ModelVariant
-	LocalVQELibPath      string
-	AECRefSource         AECRefSource
-	AECMonitorDevice     string
-	AECNoiseGate         bool
-	AECNoiseGateDBFS     float32
-	RefRing              *audio.Int16Ring
-	DumpAudioDir         string
-	IPCServer            *ipc.Server
+	PIDPath                 string
+	APIKey                  string
+	HTTPAPIBase             string
+	WSAPIBase               string
+	Lang                    string
+	Model                   string
+	Timeout                 time.Duration
+	UI                      gui.StatusSink
+	CaptureDevice           string
+	OutputFile              string
+	Prompt                  string
+	Mode                    string
+	TranslationModel        string
+	TranslationInstructions string
+	AssistantModel          string
+	AssistantVoice          string
+	Instructions            string
+	EnableDotool            bool
+	InputController         input.Controller
+	ScreenshotCommand       string
+	ScreenshotFile          string
+	InputSampleRate         int
+	OutputSampleRate        int
+	EnableAEC               bool
+	LocalVQEModelPath       string
+	LocalVQEModelVersion    localvqe.ModelVariant
+	LocalVQELibPath         string
+	AECRefSource            AECRefSource
+	AECMonitorDevice        string
+	AECNoiseGate            bool
+	AECNoiseGateDBFS        float32
+	RefRing                 *audio.Int16Ring
+	DumpAudioDir            string
+	IPCServer               *ipc.Server
 }
 
 type Listener struct {
@@ -166,6 +169,7 @@ type Listener struct {
 	aecMicRing       *audio.Int16Ring
 	aecRefRing       *audio.Int16Ring
 	aecDumpProcessed io.Writer
+	chatCli          *openai.Client
 }
 
 func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *openairt.Client, statePath string, processor audio.AudioProcessor) *Listener {
@@ -269,6 +273,15 @@ func NewListener(config ListenConfig, streamConfig audio.StreamConfig, rtCli *op
 		}
 		l.duplexOpts.AECMicRing = l.aecMicRing
 		l.duplexOpts.AECRefRing = l.aecRefRing
+	}
+
+	// Translation mode post-processes each transcript chunk through the chat
+	// completions API, so it needs an HTTP client alongside the realtime one.
+	if config.Mode == "translation" {
+		chatConf := openai.DefaultConfig(config.APIKey)
+		chatConf.BaseURL = config.HTTPAPIBase
+		chatConf.HTTPClient = &http.Client{Timeout: config.Timeout}
+		l.chatCli = openai.NewClientWithConfig(chatConf)
 	}
 
 	return l

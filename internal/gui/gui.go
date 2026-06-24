@@ -26,6 +26,9 @@ type ShowStoppingMsg struct{}
 type ShowTranscriptMsg struct {
 	Text   string
 	IsUser bool
+	// Label overrides the speaker prefix in the chat view (e.g. "Original",
+	// "Translation"). Empty falls back to "You"/"Assistant" by IsUser.
+	Label string
 }
 
 func (m *ShowListeningMsg) IsMsg() bool          { return true }

@@ -26,6 +26,7 @@ type Event struct {
 	Text      string    `json:"text"`
 	Detail    string    `json:"detail,omitempty"`
 	IsUser    bool      `json:"is_user,omitempty"`
+	Label     string    `json:"label,omitempty"`
 	Recording bool      `json:"recording,omitempty"`
 }
 
@@ -115,7 +116,7 @@ func EventFromGUIMsg(msg gui.Msg) Event {
 	case *gui.ShowStoppingMsg:
 		return Event{Kind: EventStatus, Text: "Stopping listening"}
 	case *gui.ShowTranscriptMsg:
-		return Event{Kind: EventTranscript, Text: m.Text, IsUser: m.IsUser}
+		return Event{Kind: EventTranscript, Text: m.Text, IsUser: m.IsUser, Label: m.Label}
 	case *gui.HideMsg:
 		return Event{Kind: EventStatus, Text: ""}
 	default:

@@ -12,15 +12,18 @@ func renderChatEvent(e ipc.Event) string {
 
 	switch e.Kind {
 	case ipc.EventTranscript:
+		label := "Assistant:"
+		style := assistantStyle
 		if e.IsUser {
-			return fmt.Sprintf("%s %s %s",
-				logTimestampStyle.Render(ts),
-				userStyle.Render("You:"),
-				e.Text)
+			label = "You:"
+			style = userStyle
+		}
+		if e.Label != "" {
+			label = e.Label + ":"
 		}
 		return fmt.Sprintf("%s %s %s",
 			logTimestampStyle.Render(ts),
-			assistantStyle.Render("Assistant:"),
+			style.Render(label),
 			e.Text)
 
 	case ipc.EventStatus:

@@ -20,6 +20,7 @@ VoxInput is meant to be used with [LocalAI](https://localai.io), but it will fun
 - **Noise Suppression**: Reduces background noise from the microphone input to improve transcription accuracy.
 - **Acoustic Echo Cancellation**: In assistant mode, cancels the assistant's own voice output from the microphone input to prevent feedback loops.
 - **Visual Notification**: In realtime mode, a GUI notification informs you when recording (VAD) has started or stopped.
+- **Translation Mode**: Transcribes speech in realtime, then streams each transcript chunk to the chat completions API for translation (English by default) before typing or saving it.
 - **Assistant Mode**: Voice conversations with an LLM using the OpenAI Realtime API with bidirectional audio streaming, automatic speech detection, and voice responses. Supports barge-in: speak over the assistant to interrupt it mid-response.
 - **Desktop Control**: In assistant mode, the LLM can execute keyboard and mouse commands through function calls to control your desktop environment.
 - **Screenshot Capture**: In assistant mode, the LLM can request a screenshot of your desktop to provide visual context for its responses.
@@ -92,7 +93,9 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
 - `VOXINPUT_SHOW_STATUS`: Show GUI notifications (`yes`/`no`, default: `yes`).
 - `VOXINPUT_CAPTURE_DEVICE`: Specific audio capture device name (run `voxinput devices` to list).
 - `VOXINPUT_OUTPUT_FILE`: Path to save the transcribed text to a file instead of typing it with dotool.
-- `VOXINPUT_MODE`: Realtime mode (transcription|assistant, default: transcription).
+- `VOXINPUT_MODE`: Realtime mode (transcription|translation|assistant, default: transcription).
+- `VOXINPUT_TRANSLATION_MODEL`: Chat completions model used to translate transcript chunks in translation mode (default: none).
+- `VOXINPUT_TRANSLATION_INSTRUCTIONS`: System prompt for the translation model (default: `translate to english literally with minimal explanations`).
 - `VOXINPUT_INPUT_SAMPLE_RATE`: Sample rate for audio input in Hz (default: 24000). Used for capturing audio and for realtime API input.
 - `VOXINPUT_OUTPUT_SAMPLE_RATE`: Sample rate for audio output in Hz (default: 24000). Used for realtime API output and audio playback.
 - `VOXINPUT_AEC_FILTER_MS`: AEC filter length in milliseconds (default: 200).
@@ -118,8 +121,10 @@ Unless you don't mind running VoxInput as root, then you also need to ensure the
   - `--no-show-status`: Don't show when recording has started or stopped.
   - `--output-file <path>`: Save transcript to file instead of typing.
   - `--prompt <text>`: Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
-  - `--mode <transcription|assistant>`: Realtime mode (default: transcription)
+  - `--mode <transcription|translation|assistant>`: Realtime mode (default: transcription)
   - `--instructions <text>`: System prompt for the assistant model
+  - `--translation-model <model>`: (translation mode only) Chat model used to translate transcript chunks
+  - `--translation-instructions <text>`: (translation mode only) System prompt for the translation model
   - `--no-dotool`: (assistant mode only) Disable the dotool function call
   - `--screenshot-command <cmd>`: (assistant mode only) Command to capture a screenshot (e.g. `grim /tmp/screenshot.png`)
   - `--screenshot-file <path>`: (assistant mode only) Path where the screenshot command saves its output
