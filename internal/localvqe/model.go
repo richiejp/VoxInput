@@ -21,7 +21,14 @@ const (
 	ModelV13 ModelVariant = "v1.3-4.8M"
 	ModelV12 ModelVariant = "v1.2-1.3M"
 
-	// DefaultModel is used when no version is requested. Both variants are
+	// The compact GTCRN-AEC line for lower-power CPUs. Self-contained
+	// ggufs: the v1.4-AEC front-end is embedded, so they load through
+	// localvqe_new like the main line. pi-v1 is the full enhancer
+	// (AEC + NS + dereverb); pi-aec-v1 cancels echo but keeps noise.
+	ModelPiV1    ModelVariant = "pi-v1-49k"
+	ModelPiAECV1 ModelVariant = "pi-aec-v1-49k"
+
+	// DefaultModel is used when no version is requested. All variants are
 	// bundled at build time; v1.2 is the lighter default.
 	DefaultModel ModelVariant = ModelV12
 )
@@ -34,21 +41,26 @@ func modelFileName(variant ModelVariant) string {
 	return fmt.Sprintf("localvqe-%s-f32.gguf", variant)
 }
 
-// SupportedModelVariants lists the selectable variants, newest first.
-var SupportedModelVariants = []ModelVariant{ModelV13, ModelV12}
+// SupportedModelVariants lists the selectable variants, main line newest
+// first, then the compact line.
+var SupportedModelVariants = []ModelVariant{ModelV13, ModelV12, ModelPiV1, ModelPiAECV1}
 
 // SHA256 of each variant's f32 GGUF, used to verify the build-time download
 // and any runtime cache download.
 var modelHashes = map[ModelVariant]string{
-	ModelV13: "c4f7912485c32cfc206c536f2f050b52513f2f613fdbc616391f6b26ab1d51ec",
-	ModelV12: "4856ecf5f522b23fb2bc5caeac81f323c0ef1c4c156a9c7d40a6adbe092ba9ce",
+	ModelV13:     "c4f7912485c32cfc206c536f2f050b52513f2f613fdbc616391f6b26ab1d51ec",
+	ModelV12:     "4856ecf5f522b23fb2bc5caeac81f323c0ef1c4c156a9c7d40a6adbe092ba9ce",
+	ModelPiV1:    "0e0c82a8e9703e818b64dedd0fc306394cf5bbb59fcec1ccca82099d352d0c26",
+	ModelPiAECV1: "b80b75b9038d0d28079a84afe7d4f0b8f6404f723af4633c05ed4f96fb30b7b8",
 }
 
 // modelAliases lets users pass a bare version (e.g. "v1.3") in place of the
 // fully-qualified version-size variant.
 var modelAliases = map[ModelVariant]ModelVariant{
-	"v1.2": ModelV12,
-	"v1.3": ModelV13,
+	"v1.2":      ModelV12,
+	"v1.3":      ModelV13,
+	"pi-v1":     ModelPiV1,
+	"pi-aec-v1": ModelPiAECV1,
 }
 
 func exeDir() (string, error) {
