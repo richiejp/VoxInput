@@ -47,7 +47,9 @@
             pname = "liblocalvqe";
             version = "0.1.0";
             src = localvqe-src + "/ggml";
-            nativeBuildInputs = [ pkgs.cmake ];
+            # git is needed at configure time to apply the vendored
+            # ggml-gru patch to a clean source tree
+            nativeBuildInputs = [ pkgs.cmake pkgs.git ];
             cmakeFlags = [ "-DLOCALVQE_BUILD_SHARED=ON" "-DCMAKE_BUILD_TYPE=Release" ];
             installPhase = ''
               mkdir -p $out/lib $out/include
