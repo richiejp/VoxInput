@@ -47,8 +47,10 @@ func main() {
            --no-show-status don't show when recording has started or stopped
            --output-file <path> Write transcribed text to file instead of keyboard
            --prompt <text> Text used to condition model output. Could be previously transcribed text or uncommon words you expect to use
-           --mode <transcription|assistant> (realtime only, default: transcription)
+           --mode <transcription|translation|assistant> (realtime only, default: transcription)
            --instructions <text> System prompt for the assistant model
+           --translation-model <model> (translation mode only) Chat model used to translate transcript chunks
+           --translation-instructions <text> (translation mode only) System prompt for the translation model
            --no-dotool (assistant mode only) Disable the dotool function call
            --no-aec (assistant mode only) Disable acoustic echo cancellation
            --screenshot-command <cmd> (assistant mode only) Command to capture a screenshot (e.g. "grim /tmp/screenshot.png")
@@ -87,7 +89,9 @@ Environment variables:
   VOXINPUT_CAPTURE_DEVICE - Name of the capture device (default: system default; use 'devices' to list)
   VOXINPUT_OUTPUT_FILE - File to write transcribed text to (instead of keyboard)
   VOXINPUT_PROMPT - Text used to condition the transcription model output. Could be previously transcribed text or uncommon words you expect to use (default: none)
-  VOXINPUT_MODE - Realtime mode (transcription|assistant, default: transcription)
+  VOXINPUT_MODE - Realtime mode (transcription|translation|assistant, default: transcription)
+  VOXINPUT_TRANSLATION_MODEL - Chat completions model used to translate transcript chunks in translation mode (default: none)
+  VOXINPUT_TRANSLATION_INSTRUCTIONS - System prompt for the translation model (default: "translate to english literally with minimal explanations")
   VOXINPUT_ENABLE_AEC - Enable acoustic echo cancellation in assistant mode (yes/no, default: yes)
   VOXINPUT_LOCALVQE_MODEL - Path to a LocalVQE GGUF model file, overriding the bundled models (default: the bundled model selected by VOXINPUT_LOCALVQE_MODEL_VERSION)
   VOXINPUT_LOCALVQE_MODEL_VERSION - Which bundled LocalVQE model to use: v1.2 (default), v1.3, or the compact low-power line pi-v1 (AEC+NS+dereverb) and pi-aec-v1 (echo-only); also accepts the full version-size form (v1.2-1.3M, v1.3-4.8M, pi-v1-49k, pi-aec-v1-49k). All are bundled by the CMake build; with a plain 'go build' the chosen model is downloaded into the user cache on first use. Ignored when VOXINPUT_LOCALVQE_MODEL is set.
@@ -157,6 +161,8 @@ Environment variables:
 		aecNoiseGateDBFSStr := getPrefixedEnv([]string{"VOXINPUT"}, "AEC_NOISE_GATE_DBFS", "-45.0")
 
 		mode := getPrefixedEnv([]string{"VOXINPUT"}, "MODE", "transcription")
+		translationModel := getPrefixedEnv([]string{"VOXINPUT"}, "TRANSLATION_MODEL", "")
+		translationInstructions := getPrefixedEnv([]string{"VOXINPUT"}, "TRANSLATION_INSTRUCTIONS", "translate to english literally with minimal explanations")
 		socketPath := getPrefixedEnv([]string{"VOXINPUT"}, "SOCKET", "")
 		screenshotCommand := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_COMMAND", "")
 		screenshotFile := getPrefixedEnv([]string{"VOXINPUT"}, "ASSISTANT_SCREENSHOT_FILE", "")
@@ -247,6 +253,22 @@ Environment variables:
 		}
 		if instructionsArg != "" {
 			instructions = instructionsArg
+		}
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--translation-model" && i+1 < len(os.Args) {
+				translationModel = os.Args[i+1]
+				break
+			}
+		}
+
+		for i := 2; i < len(os.Args); i++ {
+			arg := os.Args[i]
+			if arg == "--translation-instructions" && i+1 < len(os.Args) {
+				translationInstructions = os.Args[i+1]
+				break
+			}
 		}
 
 		for i := 2; i < len(os.Args); i++ {
@@ -362,37 +384,39 @@ Environment variables:
 
 			go func() {
 				listen(ListenConfig{
-					PIDPath:              pidPath,
-					APIKey:               apiKey,
-					HTTPAPIBase:          httpApiBase,
-					WSAPIBase:            wsApiBase,
-					Lang:                 lang,
-					Model:                model,
-					Timeout:              timeout,
-					UI:                   sink,
-					CaptureDevice:        captureDeviceName,
-					OutputFile:           outputFile,
-					Prompt:               prompt,
-					Mode:                 mode,
-					AssistantModel:       assistantModel,
-					AssistantVoice:       assistantVoice,
-					Instructions:         instructions,
-					EnableDotool:         enableDotool,
-					InputController:      inputCtrl,
-					ScreenshotCommand:    screenshotCommand,
-					ScreenshotFile:       screenshotFile,
-					InputSampleRate:      inputSampleRate,
-					OutputSampleRate:     outputSampleRate,
-					EnableAEC:            enableAEC,
-					LocalVQEModelPath:    localvqeModelPath,
-					LocalVQEModelVersion: localvqe.ModelVariant(localvqeModelVersion),
-					LocalVQELibPath:      localvqeLibPath,
-					AECRefSource:         aecRefSource,
-					AECMonitorDevice:     aecMonitorDevice,
-					AECNoiseGate:         aecNoiseGate,
-					AECNoiseGateDBFS:     aecNoiseGateDBFS,
-					DumpAudioDir:         dumpAudioDir,
-					IPCServer:            ipcServer,
+					PIDPath:                 pidPath,
+					APIKey:                  apiKey,
+					HTTPAPIBase:             httpApiBase,
+					WSAPIBase:               wsApiBase,
+					Lang:                    lang,
+					Model:                   model,
+					Timeout:                 timeout,
+					UI:                      sink,
+					CaptureDevice:           captureDeviceName,
+					OutputFile:              outputFile,
+					Prompt:                  prompt,
+					Mode:                    mode,
+					TranslationModel:        translationModel,
+					TranslationInstructions: translationInstructions,
+					AssistantModel:          assistantModel,
+					AssistantVoice:          assistantVoice,
+					Instructions:            instructions,
+					EnableDotool:            enableDotool,
+					InputController:         inputCtrl,
+					ScreenshotCommand:       screenshotCommand,
+					ScreenshotFile:          screenshotFile,
+					InputSampleRate:         inputSampleRate,
+					OutputSampleRate:        outputSampleRate,
+					EnableAEC:               enableAEC,
+					LocalVQEModelPath:       localvqeModelPath,
+					LocalVQEModelVersion:    localvqe.ModelVariant(localvqeModelVersion),
+					LocalVQELibPath:         localvqeLibPath,
+					AECRefSource:            aecRefSource,
+					AECMonitorDevice:        aecMonitorDevice,
+					AECNoiseGate:            aecNoiseGate,
+					AECNoiseGateDBFS:        aecNoiseGateDBFS,
+					DumpAudioDir:            dumpAudioDir,
+					IPCServer:               ipcServer,
 				})
 				cancel()
 			}()
