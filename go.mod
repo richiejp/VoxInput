@@ -9,7 +9,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/ebitengine/purego v0.10.1
 	github.com/gen2brain/beeep v0.11.2
-	github.com/gen2brain/malgo v0.11.25
+	github.com/gen2brain/malgo v0.11.26
 	github.com/sashabaranov/go-openai v1.41.2
 )
 
