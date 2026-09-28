@@ -1,13 +1,13 @@
 module github.com/richiejp/VoxInput
 
-go 1.24.2
+go 1.25.0
 
 require (
 	github.com/WqyJh/go-openai-realtime/v2 v2.0.0-rc.0.20260120095754-b1a91a348dbd
 	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/ebitengine/purego v0.10.1
+	github.com/ebitengine/purego v0.11.1
 	github.com/gen2brain/beeep v0.11.2
 	github.com/gen2brain/malgo v0.11.25
 	github.com/sashabaranov/go-openai v1.41.2
